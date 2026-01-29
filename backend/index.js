@@ -1,25 +1,39 @@
+require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
+const { Pool } = require('pg');
+
 const app = express();
 
 app.use(cors());
 app.use(express.json());
 
-const challenges = [
-    { id: 1, title: 'Sanity Check', flag: 'flag{hello_world}'}    
-];
+const pool = new Pool({
+    connectionString: process.env.DATABASE_URL,
+});
 
-app.post('/api/submit', (req, res) => {
-    const { userFlag} = req.body;
+app.post('/api/submit', async (req, res) => {
+    const {userFlag} = req.body;
 
-    if (userFlag === challenges[0].flag) {
-        res.json({ success: true , message: "Correct! +100 points"});
-    } else {
-        res.json({success: false, message: "Wrong flag. Try Again."});
+    try{
+        const result = await pool.query(
+            'Select * FROM challenges WHERE flag = $1',
+            [userFlag]
+        );
+
+        if (result.rows.length >0){
+            res.json({ success: true, message: "Correct! +100 points" });
+        } else {
+            res.json({ success: false, message: "Wrong flag. Try Again." });
+        }
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ success: false, message: "Internal server error" });
     }
 });
 
-app.listen(3001, () => {
-    console.log('Server running on port 3001');
+const PORT = 3001;
+app.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
  });
 
