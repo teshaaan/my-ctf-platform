@@ -19,13 +19,13 @@ export default function Login({ onLogin, onSwitchToSignup }: LoginProps) {
         const response = await fetch('http://localhost:3001/api/login', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ username: identifier }) 
+          body: JSON.stringify({ username: identifier, password }) 
         });
         
         const data = await response.json();
         
         if (data.success) {
-          onLogin(identifier, data.role);
+          onLogin(data.username, data.role);
         } else {
           setError(data.message);
         }

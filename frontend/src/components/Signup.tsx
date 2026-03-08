@@ -21,12 +21,10 @@ export default function Signup({ onSignup, onSwitchToLogin }: SignupProps) {
     }
 
     try {
-      // Note: We are temporarily routing this to the existing login route
-      // until the backend is upgraded to support passwords.
-      const response = await fetch('http://localhost:3001/api/login', {
+      const response = await fetch('http://localhost:3001/api/signup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username })
+        body: JSON.stringify({ username, email, password })
       });
       
       const data = await response.json();

@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import toast from 'react-hot-toast';
 
 interface Challenge {
   id: number;
@@ -15,13 +16,13 @@ interface ChallengeDetailProps {
 
 export default function ChallengeDetail({ challenge, username, onBack }: ChallengeDetailProps) {
   const [flag, setFlag] = useState("");
-  const [message, setMessage] = useState("");
   const [isSolved, setIsSolved] = useState(false);
-  const [data, setData] = useState<{ success?: boolean; message?: string } | null>(null);
 
   async function submitFlag(e: React.FormEvent) {
     e.preventDefault();
     if (!flag) return;
+
+    const toastId = toast.loading('Verifying flag...');
 
     const response = await fetch('http://localhost:3001/api/submit', {
       method: 'POST',
@@ -30,12 +31,13 @@ export default function ChallengeDetail({ challenge, username, onBack }: Challen
     });
     
     const result = await response.json();
-    setMessage(result.message);
-    setData(result);
 
     if (result.success) {
+      toast.success(`Flag Captured! +${challenge.points} pts`, { id: toastId });
       setIsSolved(true);
       setFlag("Solved!");
+    } else {
+      toast.error(result.message || "Invalid flag.", { id: toastId });
     }
   }
 
@@ -158,12 +160,6 @@ export default function ChallengeDetail({ challenge, username, onBack }: Challen
               </button>
             </form>
 
-            {/* Error Message */}
-            {message && !data?.success && (
-              <p className={`font-bold mt-4 text-center ${message.includes("Correct") ? "text-emerald-500" : "text-primary"}`}>
-                {message}
-              </p>
-            )}
 
             {/* Success Message */}
             {isSolved && (

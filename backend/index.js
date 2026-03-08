@@ -2,6 +2,8 @@ require('dotenv').config(); //.env eka load karanna
 const express = require('express');   
 const cors = require('cors');   //ports athara connection ekak
 const { Pool } = require('pg');   //postgreSQL client
+const bcrypt = require('bcrypt');
+const jwt = require('jsonwebtoken');
 
 const app = express();
 
@@ -12,36 +14,73 @@ const pool = new Pool({
     connectionString: process.env.DATABASE_URL,
 });
 
-// NEW ROUTE: Login and Check Role
-// NEW ROUTE: Login and Check Role
-app.post('/api/login', async (req, res) => {
-    const { username } = req.body;
-
-    if (!username) {
-        return res.json({ success: false, message: "Username required" });
-    }
+app.post('/api/signup', async (req, res) => {
+    const { username, password, email } = req.body; 
 
     try {
-        const userResult = await pool.query(
-            'SELECT role FROM users WHERE username = $1',
-            [username]
+        // 1. Check if user already exists
+        const userCheck = await pool.query('SELECT * FROM users WHERE username = $1', [username]);
+        if (userCheck.rows.length > 0) {
+            return res.status(400).json({ success: false, message: "Username already taken." });
+        }
+
+        // 2. Hash the password (10 rounds of salt)
+        const saltRounds = 10;
+        const hashedPassword = await bcrypt.hash(password, saltRounds);
+
+        // 3. Insert into DB
+        const newUser = await pool.query(
+            "INSERT INTO users (username, password_hash, role, score) VALUES ($1, $2, 'player', 0) RETURNING *",
+            [username, hashedPassword]
         );
 
-        if (userResult.rows.length > 0) {
-            const rawRole = userResult.rows[0].role || 'player';
-            const cleanRole = rawRole.trim().toLowerCase();
-            
-            res.json({ success: true, role: cleanRole });
-        } else {
-            await pool.query(
-                "INSERT INTO users (username, score, role) VALUES ($1, 0, 'player')",
-                [username]
-            );
-            res.json({ success: true, role: 'player' });
-        }
+        // 4. Create the Token
+        const token = jwt.sign(
+            { id: newUser.rows[0].id, username: newUser.rows[0].username, role: newUser.rows[0].role },
+            process.env.JWT_SECRET,
+            { expiresIn: '1h' }
+        );
+
+        res.json({ success: true, token, username: newUser.rows[0].username, role: newUser.rows[0].role });
+
     } catch (err) {
         console.error(err);
-        res.status(500).json({ error: "Server error" });
+        res.status(500).json({ success: false, message: "Server error during signup." });
+    }
+});
+
+// LOGIN ROUTE
+app.post('/api/login', async (req, res) => {
+    const { username, password } = req.body;
+
+    try {
+        // 1. Find user
+        const userResult = await pool.query('SELECT * FROM users WHERE username = $1', [username]);
+        
+        if (userResult.rows.length === 0) {
+            return res.status(400).json({ success: false, message: "User not found." });
+        }
+
+        const user = userResult.rows[0];
+
+        // 2. Check Password
+        const validPassword = await bcrypt.compare(password, user.password_hash);
+        if (!validPassword) {
+            return res.status(400).json({ success: false, message: "Invalid password." });
+        }
+
+        // 3. Create Token
+        const token = jwt.sign(
+            { id: user.id, username: user.username, role: user.role },
+            process.env.JWT_SECRET,
+            { expiresIn: '1h' }
+        );
+
+        res.json({ success: true, token, username: user.username, role: user.role });
+
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ success: false, message: "Server error." });
     }
 });
 
