@@ -1,8 +1,7 @@
 import { useState, useEffect } from 'react';
-
-interface AdminBoardProps {
-  username: string;
-}
+import { useAuth } from '../context/AuthContext';
+import { useNavigate } from 'react-router-dom';
+import toast from 'react-hot-toast';
 
 interface Challenge {
   id: number;
@@ -11,13 +10,21 @@ interface Challenge {
   points: number;
 }
 
-export default function AdminBoard({ username }: AdminBoardProps) {
+export default function AdminBoard() {
   const [title, setTitle] = useState("");
   const [flag, setFlag] = useState("");
   const [category, setCategory] = useState("Web Exploitation");
   const [points, setPoints] = useState<number>(100);
   const [message, setMessage] = useState("");
   const [challenges, setChallenges] = useState<Challenge[]>([]);
+  const { token, logout } = useAuth();
+  const navigate = useNavigate();
+
+  const handleUnauthorized = () => {
+    logout();
+    toast.error('Session expired or unauthorized. Please log in again.');
+    navigate('/login', { replace: true });
+  };
 
   const fetchChallenges = () => {
     fetch('http://localhost:3001/api/challenges')
@@ -36,9 +43,17 @@ export default function AdminBoard({ username }: AdminBoardProps) {
     e.preventDefault(); 
     const response = await fetch('http://localhost:3001/api/admin/challenges', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username, title, flag, category, points })
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ title, flag, category, points })
     });
+
+    if (response.status === 401 || response.status === 403) {
+      handleUnauthorized();
+      return;
+    }
     
     const data = await response.json();
     setMessage(data.message);
@@ -56,9 +71,17 @@ export default function AdminBoard({ username }: AdminBoardProps) {
 
     const response = await fetch(`http://localhost:3001/api/admin/challenges/${id}`, {
       method: 'DELETE',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username }) 
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({}) 
     });
+
+    if (response.status === 401 || response.status === 403) {
+      handleUnauthorized();
+      return;
+    }
 
     const data = await response.json();
     if (data.success) {

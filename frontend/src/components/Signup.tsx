@@ -1,22 +1,38 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import toast from 'react-hot-toast';
+import { useAuth } from '../context/AuthContext';
 
 interface SignupProps {
-  onSignup: (username: string, role: string) => void;
   onSwitchToLogin: () => void;
 }
 
-export default function Signup({ onSignup, onSwitchToLogin }: SignupProps) {
+export default function Signup({ onSwitchToLogin }: SignupProps) {
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState('');
+  const { login } = useAuth();
+  const navigate = useNavigate();
+
+  const isStrongPassword = (candidate: string) => {
+    // Match backend password policy.
+    const strongPasswordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{8,64}$/;
+    return strongPasswordRegex.test(candidate);
+  };
 
   const handleSignup = async (event: React.FormEvent) => {
     event.preventDefault();
+    setError('');
     
     if (password !== confirmPassword) {
       setError("Passwords do not match.");
+      return;
+    }
+
+    if (!isStrongPassword(password)) {
+      setError('Password must be 8+ chars with uppercase, lowercase, number, and symbol.');
       return;
     }
 
@@ -30,7 +46,9 @@ export default function Signup({ onSignup, onSwitchToLogin }: SignupProps) {
       const data = await response.json();
       
       if (data.success) {
-        onSignup(username, data.role);
+        login(data.token, data.username, data.role);
+        toast.success(`Account created. Welcome, ${data.username}!`);
+        navigate('/dashboard');
       } else {
         setError(data.message);
       }

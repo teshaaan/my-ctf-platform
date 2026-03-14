@@ -4,18 +4,79 @@ const cors = require('cors');   //ports athara connection ekak
 const { Pool } = require('pg');   //postgreSQL client
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
+const rateLimit = require('express-rate-limit');
+const { verifyToken, requireAdmin } = require('./middleware/authMiddleware');
+const { blacklistToken } = require('./middleware/tokenBlacklist');
 
 const app = express();
 
-app.use(cors());
+const allowedOrigins = (process.env.CORS_ORIGIN || 'http://localhost:5173')
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+
+app.use(cors({
+    origin: (origin, callback) => {
+        // Allow requests without an Origin header (curl, server-side jobs, Postman).
+        if (!origin || allowedOrigins.includes(origin)) {
+            return callback(null, true);
+        }
+        return callback(new Error('CORS policy blocked this origin.'));
+    },
+}));
 app.use(express.json());
+
+const loginRateLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 20,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { success: false, message: 'Too many login attempts. Please try again in 15 minutes.' },
+});
+
+const signupRateLimiter = rateLimit({
+    windowMs: 60 * 60 * 1000,
+    max: 10,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { success: false, message: 'Too many signup attempts. Please try again later.' },
+});
 
 const pool = new Pool({
     connectionString: process.env.DATABASE_URL,
 });
 
-app.post('/api/signup', async (req, res) => {
+const createAuthToken = (user) => {
+    return jwt.sign(
+        { id: user.id, username: user.username, role: user.role },
+        process.env.JWT_SECRET,
+        { expiresIn: '1h' }
+    );
+};
+
+const isStrongPassword = (password) => {
+    // At least 8 chars with uppercase, lowercase, number, and symbol.
+    const strongPasswordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{8,64}$/;
+    return strongPasswordRegex.test(password);
+};
+
+app.post('/api/signup', signupRateLimiter, async (req, res) => {
     const { username, password, email } = req.body; 
+
+    if (!process.env.JWT_SECRET) {
+        return res.status(500).json({ success: false, message: "JWT secret is not configured." });
+    }
+
+    if (!username || !password || !email) {
+        return res.status(400).json({ success: false, message: "Username, email, and password are required." });
+    }
+
+    if (!isStrongPassword(password)) {
+        return res.status(400).json({
+            success: false,
+            message: "Password must be 8+ chars and include uppercase, lowercase, number, and symbol.",
+        });
+    }
 
     try {
         // 1. Check if user already exists
@@ -35,11 +96,7 @@ app.post('/api/signup', async (req, res) => {
         );
 
         // 4. Create the Token
-        const token = jwt.sign(
-            { id: newUser.rows[0].id, username: newUser.rows[0].username, role: newUser.rows[0].role },
-            process.env.JWT_SECRET,
-            { expiresIn: '1h' }
-        );
+        const token = createAuthToken(newUser.rows[0]);
 
         res.json({ success: true, token, username: newUser.rows[0].username, role: newUser.rows[0].role });
 
@@ -50,8 +107,16 @@ app.post('/api/signup', async (req, res) => {
 });
 
 // LOGIN ROUTE
-app.post('/api/login', async (req, res) => {
+app.post('/api/login', loginRateLimiter, async (req, res) => {
     const { username, password } = req.body;
+
+    if (!process.env.JWT_SECRET) {
+        return res.status(500).json({ success: false, message: "JWT secret is not configured." });
+    }
+
+    if (!username || !password) {
+        return res.status(400).json({ success: false, message: "Username and password are required." });
+    }
 
     try {
         // 1. Find user
@@ -70,11 +135,7 @@ app.post('/api/login', async (req, res) => {
         }
 
         // 3. Create Token
-        const token = jwt.sign(
-            { id: user.id, username: user.username, role: user.role },
-            process.env.JWT_SECRET,
-            { expiresIn: '1h' }
-        );
+        const token = createAuthToken(user);
 
         res.json({ success: true, token, username: user.username, role: user.role });
 
@@ -82,6 +143,11 @@ app.post('/api/login', async (req, res) => {
         console.error(err);
         res.status(500).json({ success: false, message: "Server error." });
     }
+});
+
+app.post('/api/logout', verifyToken, (req, res) => {
+    blacklistToken(req.token, req.user.exp);
+    res.json({ success: true, message: 'Logged out successfully.' });
 });
 
 app.get('/api/challenges', async (req, res) => {
@@ -95,45 +161,54 @@ app.get('/api/challenges', async (req, res) => {
     }
 });
 
-app.post('/api/submit', async (req, res) => {
-    const { challengeId, userFlag, username } = req.body;
-    if (!username) return res.json({ success: false, message: "You must be logged in to submit flags!" });
+// PROTECTED ROUTE: Notice the 'verifyToken' in the middle!
+app.post('/api/submit', verifyToken, async (req, res) => {
+    const { challengeId, userFlag } = req.body;
+
+    // WAIT! Because of our middleware, we now have req.user!
+    // We don't even need to trust the 'username' they sent in the body.
+    // We can use the 100% verified ID from their token:
+    const verifiedUserId = req.user.id; 
+
+    if (!challengeId || !userFlag) {
+        return res.status(400).json({ success: false, message: "Challenge ID and flag are required." });
+    }
 
     try {
-        // Grab the flag AND the point value
-        const challengeResult = await pool.query('SELECT flag, points FROM challenges WHERE id = $1', [challengeId]);
-        if (challengeResult.rows.length === 0) return res.json({ success: false, message: "Challenge not found" });
+        // 1. Get the challenge
+        const chalResult = await pool.query('SELECT * FROM challenges WHERE id = $1', [challengeId]);
+        if (chalResult.rows.length === 0) {
+            return res.status(404).json({ success: false, message: "Challenge not found." });
+        }
+        
+        const challenge = chalResult.rows[0];
 
-        const correctFlag = challengeResult.rows[0].flag;
-        const pointsToAward = challengeResult.rows[0].points; // Get the dynamic points
-
-        if (userFlag !== correctFlag) return res.json({ success: false, message: "Wrong flag!" });
-
-        let userId;
-        const userResult = await pool.query('SELECT id FROM users WHERE username ILIKE $1', [username]);
-
-        if (userResult.rows.length > 0) {
-            userId = userResult.rows[0].id; 
-        } else {
-            const newUserResult = await pool.query(
-                "INSERT INTO users (username, score, role) VALUES ($1, 0, 'player') RETURNING id",
-                [username]
-            );
-            userId = newUserResult.rows[0].id;
+        // 2. Check the flag
+        if (challenge.flag !== userFlag) {
+            return res.status(400).json({ success: false, message: "Incorrect flag." });
         }
 
-        const solveCheck = await pool.query('SELECT * FROM solves WHERE user_id = $1 AND challenge_id = $2', [userId, challengeId]);
-        if (solveCheck.rows.length > 0) return res.json({ success: true, message: "Correct! But you already solved this one." });
+        // 3. Insert the solve (using the VERIFIED user ID)
+        await pool.query(
+            'INSERT INTO solves (user_id, challenge_id) VALUES ($1, $2)',
+            [verifiedUserId, challengeId]
+        );
 
-        await pool.query('INSERT INTO solves (user_id, challenge_id) VALUES ($1, $2)', [userId, challengeId]);
-        
-        // Add the specific challenge points instead of 100
-        await pool.query('UPDATE users SET score = score + $1 WHERE id = $2', [pointsToAward, userId]);
+        // 4. Update the user's score
+        await pool.query(
+            'UPDATE users SET score = score + $1 WHERE id = $2',
+            [challenge.points, verifiedUserId]
+        );
 
-        res.json({ success: true, message: `Correct! +${pointsToAward} Points added to your score!` });
+        res.json({ success: true, message: `Flag Captured! +${challenge.points} pts` });
+
     } catch (err) {
+        // Catch duplicate solves (thanks to the database constraint we added earlier!)
+        if (err.code === '23505') { 
+            return res.status(400).json({ success: false, message: "You already solved this challenge!" });
+        }
         console.error(err);
-        res.status(500).json({ error: "Server error" });
+        res.status(500).json({ success: false, message: "Server error." });
     }
 });
 
@@ -151,24 +226,19 @@ app.get('/api/scoreboard', async (req, res) => {
 });
 
 // NEW ROUTE: Secure Admin Dashboard (Create Challenges)
-app.post('/api/admin/challenges', async (req, res) => {
+app.post('/api/admin/challenges', verifyToken, requireAdmin, async (req, res) => {
     // Now accepting category and points from the frontend
-    const { username, title, flag, category, points } = req.body;
+    const { title, flag, category, points } = req.body;
 
-    if (!username || !title || !flag || !category || !points) {
-        return res.json({ success: false, message: "Missing required fields." });
+    if (!title || !flag || !category || !points) {
+        return res.status(400).json({ success: false, message: "Missing required fields." });
     }
 
     try {
-        const userResult = await pool.query('SELECT role FROM users WHERE username ILIKE $1', [username]);
-        if (userResult.rows.length === 0 || userResult.rows[0].role !== 'admin') {
-            return res.json({ success: false, message: "Unauthorized: Admins only!" });
-        }
-
         // Insert all the new data
         await pool.query(
             'INSERT INTO challenges (title, flag, category, points) VALUES ($1, $2, $3, $4)', 
-            [title, flag, category, parseInt(points)]
+            [title, flag, category, parseInt(points, 10)]
         );
         res.json({ success: true, message: "Challenge added successfully!" });
 
@@ -177,21 +247,11 @@ app.post('/api/admin/challenges', async (req, res) => {
         res.status(500).json({ error: "Server error" });
     }
 });
-    // NEW ROUTE: Secure Admin Dashboard (Delete Challenges)
-app.delete('/api/admin/challenges/:id', async (req, res) => {
+// NEW ROUTE: Secure Admin Dashboard (Delete Challenges)
+app.delete('/api/admin/challenges/:id', verifyToken, requireAdmin, async (req, res) => {
     const { id } = req.params;
-    const { username } = req.body; // We still need to verify who is asking!
-
-    if (!username) return res.json({ success: false, message: "Missing username." });
 
     try {
-        // SECURITY CHECK: Is this user actually an admin?
-        const userResult = await pool.query('SELECT role FROM users WHERE username = $1', [username]);
-
-        if (userResult.rows.length === 0 || userResult.rows[0].role !== 'admin') {
-            return res.json({ success: false, message: "Unauthorized: Admins only!" });
-        }
-
         // 1. Delete all solves associated with this challenge first (so the database doesn't crash)
         await pool.query('DELETE FROM solves WHERE challenge_id = $1', [id]);
         

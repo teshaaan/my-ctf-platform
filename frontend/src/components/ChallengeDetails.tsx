@@ -1,5 +1,7 @@
 import { useState } from 'react';
 import toast from 'react-hot-toast';
+import { useAuth } from '../context/AuthContext';
+import { useNavigate } from 'react-router-dom';
 
 interface Challenge {
   id: number;
@@ -10,13 +12,14 @@ interface Challenge {
 
 interface ChallengeDetailProps {
   challenge: Challenge;
-  username: string;
   onBack: () => void; // Function to go back to the grid
 }
 
-export default function ChallengeDetail({ challenge, username, onBack }: ChallengeDetailProps) {
+export default function ChallengeDetail({ challenge, onBack }: ChallengeDetailProps) {
   const [flag, setFlag] = useState("");
   const [isSolved, setIsSolved] = useState(false);
+  const { token, logout } = useAuth();
+  const navigate = useNavigate();
 
   async function submitFlag(e: React.FormEvent) {
     e.preventDefault();
@@ -26,9 +29,19 @@ export default function ChallengeDetail({ challenge, username, onBack }: Challen
 
     const response = await fetch('http://localhost:3001/api/submit', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ challengeId: challenge.id, userFlag: flag, username })
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ challengeId: challenge.id, userFlag: flag })
     });
+
+    if (response.status === 401 || response.status === 403) {
+      toast.error('Session expired. Please log in again.', { id: toastId });
+      logout();
+      navigate('/login', { replace: true });
+      return;
+    }
     
     const result = await response.json();
 

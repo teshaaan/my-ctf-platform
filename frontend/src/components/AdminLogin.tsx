@@ -1,22 +1,25 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import toast from 'react-hot-toast';
+import { useAuth } from '../context/AuthContext';
 
-interface AdminLoginProps {
-  onAdminLogin: (username: string) => void;
-}
-
-export default function AdminLogin({ onAdminLogin }: AdminLoginProps) {
+export default function AdminLogin() {
   const [usernameInput, setUsernameInput] = useState('');
+  const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const { login } = useAuth();
+  const navigate = useNavigate();
   
   const handleLogin = async (event: React.FormEvent) => {
     event.preventDefault(); 
+    setError('');
     
-    if (usernameInput.trim() !== '') {
+    if (usernameInput.trim() !== '' && password.trim() !== '') {
       try {
         const response = await fetch('http://localhost:3001/api/login', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ username: usernameInput })
+          body: JSON.stringify({ username: usernameInput, password })
         });
         
         const data = await response.json();
@@ -24,7 +27,9 @@ export default function AdminLogin({ onAdminLogin }: AdminLoginProps) {
         if (data.success) {
           // STRICT CHECK: Are they actually an admin?
           if (data.role === 'admin') {
-            onAdminLogin(usernameInput);
+            login(data.token, data.username, data.role);
+            toast.success(`Admin authenticated: ${data.username}`);
+            navigate('/admin');
           } else {
             // Kick them out if they are a regular player
             setError("Access Denied: You do not have administrator privileges.");
@@ -50,6 +55,14 @@ export default function AdminLogin({ onAdminLogin }: AdminLoginProps) {
             placeholder="Admin Username"
             value={usernameInput}
             onChange={(e) => setUsernameInput(e.target.value)}
+            required
+            style={{ padding: "10px", width: "250px", border: "1px solid #ccc", borderRadius: "4px" }}
+          />
+          <input
+            type="password"
+            placeholder="Admin Password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
             required
             style={{ padding: "10px", width: "250px", border: "1px solid #ccc", borderRadius: "4px" }}
           />

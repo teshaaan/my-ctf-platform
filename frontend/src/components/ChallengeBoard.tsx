@@ -8,17 +8,11 @@ interface Challenge {
   points: number;
 }
 
-interface ChallengeBoardProps {
-  username: string;
-}
-
-export default function ChallengeBoard({ username }: ChallengeBoardProps) {
+export default function ChallengeBoard() {
   const [challenges, setChallenges] = useState<Challenge[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<string>("All");
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedChallengeId, setSelectedChallengeId] = useState<number | null>(null);
-  const [flag, setFlag] = useState("");
-  const [message, setMessage] = useState("");
 
   useEffect(() => {
     fetch('http://localhost:3001/api/challenges')
@@ -28,18 +22,6 @@ export default function ChallengeBoard({ username }: ChallengeBoardProps) {
       })
       .catch(err => console.error(err));
   }, []);
-
-  async function submitFlag() {
-    if (selectedChallengeId === null) return;
-    const response = await fetch('http://localhost:3001/api/submit', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ challengeId: selectedChallengeId, userFlag: flag, username })
-    });
-    
-    const data = await response.json();
-    setMessage(data.message);
-  }
 
   // Filter logic: Checks category AND search bar text
   const uniqueCategories = ["All", ...Array.from(new Set(challenges.map(c => c.category)))];
@@ -68,7 +50,6 @@ export default function ChallengeBoard({ username }: ChallengeBoardProps) {
     return (
       <ChallengeDetail 
         challenge={selectedChallenge} 
-        username={username} 
         onBack={() => setSelectedChallengeId(null)} // This brings them back to the grid
       />
     );

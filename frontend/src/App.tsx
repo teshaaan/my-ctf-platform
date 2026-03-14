@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import {Routes, Route, Navigate, useNavigate, Link, useLocation} from 'react-router-dom';
 import toast, {Toaster} from 'react-hot-toast';
+import { useAuth } from './context/AuthContext';
 
 import Login from './components/Login';
 import Scoreboard from './components/Scoreboard';
@@ -12,11 +13,24 @@ import Dashboard from './components/Dashboard';
 import Signup from './components/Signup';
 
 export default function App() {
-  const [loggedInUser, setLoggedInUser] = useState<string | null>(null);
-  const [isDarkMode, setIsDarkMode] = useState(true);
 
+  const [isDarkMode, setIsDarkMode] = useState(true);
+  const { token, username, role, logout } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
+
+  const parseTokenExp = (jwtToken: string): number | null => {
+    try {
+      const payloadPart = jwtToken.split('.')[1];
+      if (!payloadPart) return null;
+
+      const normalizedPayload = payloadPart.replace(/-/g, '+').replace(/_/g, '/');
+      const payload = JSON.parse(atob(normalizedPayload));
+      return typeof payload.exp === 'number' ? payload.exp : null;
+    } catch {
+      return null;
+    }
+  };
 
   // Handle Theme Toggling globally
   useEffect(() => {
@@ -24,20 +38,52 @@ export default function App() {
     else document.documentElement.classList.remove('dark');
   }, [isDarkMode]);
 
-  const handleAuthSuccess = (username: string) => {
-    setLoggedInUser(username);
-    toast.success(`Welcome, ${username}!`);
-    navigate('/dashboard'); 
-  };
+  // Auto-expire client session when JWT expiry time is reached.
+  useEffect(() => {
+    if (!token) return;
 
-  const handleLogout = () => {
-    setLoggedInUser(null);
+    const exp = parseTokenExp(token);
+    if (!exp) return;
+
+    const now = Math.floor(Date.now() / 1000);
+    if (now >= exp) {
+      logout();
+      toast.error('Session expired. Please log in again.');
+      navigate('/login', { replace: true });
+      return;
+    }
+
+    const timeoutMs = (exp - now) * 1000;
+    const timer = window.setTimeout(() => {
+      logout();
+      toast.error('Session expired. Please log in again.');
+      navigate('/login', { replace: true });
+    }, timeoutMs);
+
+    return () => window.clearTimeout(timer);
+  }, [token, logout, navigate]);
+
+  const handleLogout = async () => {
+    if (token) {
+      try {
+        await fetch('http://localhost:3001/api/logout', {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        });
+      } catch (err) {
+        console.error('Failed to call logout API:', err);
+      }
+    }
+
+    logout();
     toast.success('Logged out successfully!');
     navigate('/');
-  }
+  };
 
   const ProtectedLayout = ({ children }: { children: React.ReactNode }) => {
-    if (!loggedInUser) return <Navigate to="/login" />; // Kick out unauthorized users
+    if (!username) return <Navigate to="/login" replace />; // Kick out unauthorized users
 
     return (
       <div className="bg-background-light dark:bg-background-dark text-secondary dark:text-gray-200 min-h-screen flex flex-col transition-colors duration-300">
@@ -71,10 +117,10 @@ export default function App() {
                 <div className="flex items-center gap-3 pl-4 border-l border-gray-200 dark:border-gray-700">
                   <div className="text-right hidden sm:block">
                     <p className="text-xs font-bold text-primary uppercase">Player</p>
-                    <p className="text-sm font-semibold dark:text-white">{loggedInUser}</p>
+                    <p className="text-sm font-semibold dark:text-white">{username}</p>
                   </div>
                   <div className="w-10 h-10 rounded-full border-2 border-primary bg-secondary flex items-center justify-center text-white font-bold uppercase">
-                    {loggedInUser.charAt(0)}
+                    {username.charAt(0)}
                   </div>
                   <button onClick={handleLogout} className="ml-2 p-2 text-slate-400 hover:text-primary transition-colors flex items-center" title="Sign Out">
                     <span className="material-symbols-outlined">logout</span>
@@ -111,30 +157,32 @@ export default function App() {
     <Routes>
       {/* Public Routes */}
       <Route path="/" element={<LandingPage onStartClick={() => navigate('/login')} />} />
-      <Route path="/login" element={<Login onLogin={handleAuthSuccess} onSwitchToSignup={() => navigate('/signup')} />} />
-      <Route path="/signup" element={<Signup onSignup={handleAuthSuccess} onSwitchToLogin={() => navigate('/login')} />} />
+      <Route path="/login" element={username ? <Navigate to="/dashboard" replace /> : <Login onSwitchToSignup={() => navigate('/signup')} />} />
+      <Route path="/signup" element={username ? <Navigate to="/dashboard" replace /> : <Signup onSwitchToLogin={() => navigate('/login')} />} />
       
       {/* Admin Route */}
       <Route path="/admin" element={
-        !loggedInUser ? (
-          <AdminLogin onAdminLogin={handleAuthSuccess} />
+        !username ? (
+          <AdminLogin />
+        ) : role !== 'admin' ? (
+          <Navigate to="/dashboard" replace />
         ) : (
           <div className="p-10 font-sans max-w-5xl mx-auto bg-background-light dark:bg-background-dark min-h-screen text-secondary dark:text-white">
             <div className="flex justify-between items-center border-b-2 border-primary pb-5 mb-5">
               <h1 className="text-primary text-2xl font-bold flex items-center gap-2">
                 <span className="material-symbols-outlined">admin_panel_settings</span> Admin Control Panel
               </h1>
-              <p>Logged in as: <strong>{loggedInUser}</strong></p>
+              <p>Logged in as: <strong>{username}</strong></p>
             </div>
-            <AdminBoard username={loggedInUser} />
+            <AdminBoard />
           </div>
         )
       } />
 
       {/* Protected Player Routes */}
-      <Route path="/dashboard" element={<ProtectedLayout><Dashboard username={loggedInUser || ""} /></ProtectedLayout>} />
-      <Route path="/challenges" element={<ProtectedLayout><ChallengeBoard username={loggedInUser || ""} /></ProtectedLayout>} />
-      <Route path="/scoreboard" element={<ProtectedLayout><div className="max-w-7xl mx-auto py-8"><Scoreboard username={loggedInUser} /></div></ProtectedLayout>} />
+      <Route path="/dashboard" element={<ProtectedLayout><Dashboard username={username || ""} /></ProtectedLayout>} />
+      <Route path="/challenges" element={<ProtectedLayout><ChallengeBoard /></ProtectedLayout>} />
+      <Route path="/scoreboard" element={<ProtectedLayout><div className="max-w-7xl mx-auto py-8"><Scoreboard username={username || ""} /></div></ProtectedLayout>} />
 
       {/* Catch-all: If they type a weird URL, send them back to the start */}
       <Route path="*" element={<Navigate to="/" />} />

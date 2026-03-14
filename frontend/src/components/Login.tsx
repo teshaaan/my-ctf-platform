@@ -1,21 +1,26 @@
 import { useState } from 'react';
+import { useAuth } from '../context/AuthContext';
+import { useNavigate } from 'react-router-dom';
+import toast from 'react-hot-toast';
+
 
 interface LoginProps {
-  onLogin: (username: string, role: string) => void;
   onSwitchToSignup: () => void;
 }
 
-export default function Login({ onLogin, onSwitchToSignup }: LoginProps) {
+export default function Login({ onSwitchToSignup }: LoginProps) {
   const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const { login } = useAuth();
+  const navigate = useNavigate();
   
   const handleLogin = async (event: React.FormEvent) => {
     event.preventDefault(); 
+    setError('');
     
     if (identifier.trim() !== '') {
       try {
-        // Note: The backend doesn't check passwords yet! We will fix this in the next step.
         const response = await fetch('http://localhost:3001/api/login', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -25,7 +30,9 @@ export default function Login({ onLogin, onSwitchToSignup }: LoginProps) {
         const data = await response.json();
         
         if (data.success) {
-          onLogin(data.username, data.role);
+          login(data.token, data.username, data.role);
+          toast.success(`Welcome back, ${data.username}!`);
+          navigate('/dashboard');
         } else {
           setError(data.message);
         }
