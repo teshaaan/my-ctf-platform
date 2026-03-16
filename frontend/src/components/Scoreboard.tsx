@@ -36,7 +36,7 @@ export default function Scoreboard({ username }: ScoreboardProps) {
         <div>
           <h1 className="text-4xl font-extrabold text-slate-900 dark:text-white">Global Rankings</h1>
           <p className="mt-2 text-slate-500 dark:text-slate-400 max-w-2xl">
-            Compete with security researchers worldwide. Rankings are updated in real-time based on successful challenge completions.
+            This is just friendly competition.
           </p>
         </div>
       </div>
@@ -49,7 +49,10 @@ export default function Scoreboard({ username }: ScoreboardProps) {
           {secondPlace && (
             <div className="w-full bg-white dark:bg-slate-800/50 p-6 rounded-2xl border border-slate-200 dark:border-slate-700/50 text-center relative overflow-hidden group hover:border-slate-300 dark:hover:border-slate-500 transition-all">
               <div className="relative">
-                <p className="text-sm font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-300 mb-3">2nd</p>
+                <p className="text-sm font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-300 mb-3 inline-flex items-center justify-center gap-1.5">
+                  <span className="material-symbols-outlined text-base text-slate-400 dark:text-slate-300">military_tech</span>
+                  2nd
+                </p>
                 <h3 className="font-bold text-xl mb-1 dark:text-white">{secondPlace.username}</h3>
                 <p className="text-primary font-mono font-bold text-2xl">{secondPlace.score} <span className="text-xs font-normal text-slate-400">PTS</span></p>
               </div>
@@ -63,7 +66,10 @@ export default function Scoreboard({ username }: ScoreboardProps) {
             <div className="w-full bg-white dark:bg-slate-800 p-8 rounded-3xl border-2 border-primary/30 dark:border-primary/50 text-center relative overflow-hidden shadow-2xl shadow-primary/10 group transform md:scale-110">
               <div className="absolute -top-10 -right-10 w-32 h-32 bg-primary/10 rounded-full blur-3xl group-hover:bg-primary/20 transition-all"></div>
               <div className="relative">
-                <p className="text-sm font-semibold uppercase tracking-wider text-yellow-600 dark:text-yellow-400 mb-3">1st</p>
+                <p className="text-sm font-semibold uppercase tracking-wider text-yellow-600 dark:text-yellow-400 mb-3 inline-flex items-center justify-center gap-1.5">
+                  <span className="material-symbols-outlined text-base text-yellow-500 dark:text-yellow-400">military_tech</span>
+                  1st
+                </p>
                 <h3 className="font-black text-2xl mb-1 text-slate-900 dark:text-white tracking-tight">{firstPlace.username}</h3>
                 <p className="text-primary font-mono font-black text-3xl">{firstPlace.score} <span className="text-xs font-normal text-slate-400">PTS</span></p>
               </div>
@@ -76,7 +82,10 @@ export default function Scoreboard({ username }: ScoreboardProps) {
           {thirdPlace && (
             <div className="w-full bg-white dark:bg-slate-800/50 p-6 rounded-2xl border border-slate-200 dark:border-slate-700/50 text-center relative overflow-hidden group hover:border-slate-300 dark:hover:border-slate-500 transition-all">
               <div className="relative">
-                <p className="text-sm font-semibold uppercase tracking-wider text-amber-700 dark:text-amber-400 mb-3">3rd</p>
+                <p className="text-sm font-semibold uppercase tracking-wider text-orange-900 dark:text-orange-500 mb-3 inline-flex items-center justify-center gap-1.5">
+                  <span className="material-symbols-outlined text-base text-orange-900 dark:text-orange-500">military_tech</span>
+                  3rd
+                </p>
                 <h3 className="font-bold text-xl mb-1 dark:text-white">{thirdPlace.username}</h3>
                 <p className="text-primary font-mono font-bold text-2xl">{thirdPlace.score} <span className="text-xs font-normal text-slate-400">PTS</span></p>
               </div>

@@ -1,7 +1,10 @@
-import { useState, useEffect } from 'react';
-import { useAuth } from '../context/AuthContext';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
+import { useAuth } from '../context/AuthContext';
+
+type AdminTab = 'challenges' | 'submissions' | 'users';
+type ModalMode = 'create' | 'update';
 
 interface Challenge {
   id: number;
@@ -28,6 +31,14 @@ interface ChallengeSubmission {
   status: string;
   createdAt?: string;
   submittedBy: string;
+}
+
+interface AdminUserSummary {
+  id: number;
+  username: string;
+  score: number;
+  rank: number;
+  solved_count: number;
 }
 
 interface ChallengeFormState {
@@ -65,18 +76,34 @@ const categories = [
 ];
 
 export default function AdminBoard() {
-  const [form, setForm] = useState<ChallengeFormState>(defaultForm);
-  const [selectedChallengeId, setSelectedChallengeId] = useState<number | null>(null);
-  const [saving, setSaving] = useState(false);
+  const [activeTab, setActiveTab] = useState<AdminTab>('challenges');
   const [challenges, setChallenges] = useState<Challenge[]>([]);
   const [submissions, setSubmissions] = useState<ChallengeSubmission[]>([]);
+  const [users, setUsers] = useState<AdminUserSummary[]>([]);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [modalMode, setModalMode] = useState<ModalMode>('create');
+  const [editingChallengeId, setEditingChallengeId] = useState<number | null>(null);
+  const [form, setForm] = useState<ChallengeFormState>(defaultForm);
+  const [saving, setSaving] = useState(false);
+
   const { token, logout } = useAuth();
   const navigate = useNavigate();
+
+  const pendingSubmissions = useMemo(
+    () => submissions.filter((submission) => submission.status === 'pending'),
+    [submissions]
+  );
+
+  const tabItems: Array<{ key: AdminTab; label: string; icon: string }> = [
+    { key: 'challenges', label: 'Challenges', icon: 'deployed_code' },
+    { key: 'submissions', label: 'Pending Submissions', icon: 'inbox' },
+    { key: 'users', label: 'User Stats', icon: 'groups' },
+  ];
 
   const handleUnauthorized = () => {
     logout();
     toast.error('Session expired or unauthorized. Please log in again.');
-    navigate('/login', { replace: true });
+    navigate('/admin/login', { replace: true });
   };
 
   const fetchChallenges = async () => {
@@ -90,6 +117,8 @@ export default function AdminBoard() {
   };
 
   const fetchSubmissions = async () => {
+    if (!token) return;
+
     try {
       const response = await fetch('http://localhost:3001/api/admin/challenge-submissions', {
         cache: 'no-store',
@@ -112,18 +141,51 @@ export default function AdminBoard() {
     }
   };
 
-  useEffect(() => {
-    fetchChallenges();
-    if (token) fetchSubmissions();
-  }, [token]);
+  const fetchUsersSummary = async () => {
+    if (!token) return;
 
-  const resetForm = () => {
-    setSelectedChallengeId(null);
-    setForm(defaultForm);
+    try {
+      const response = await fetch('http://localhost:3001/api/admin/users-summary', {
+        cache: 'no-store',
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      if (response.status === 401 || response.status === 403) {
+        handleUnauthorized();
+        return;
+      }
+
+      const data = await response.json();
+      if (data.success && Array.isArray(data.users)) {
+        setUsers(data.users);
+      }
+    } catch (err) {
+      console.error(err);
+    }
   };
 
-  const selectChallenge = (challenge: Challenge) => {
-    setSelectedChallengeId(challenge.id);
+  useEffect(() => {
+    fetchChallenges();
+    fetchSubmissions();
+    fetchUsersSummary();
+  }, [token]);
+
+  const setField = <K extends keyof ChallengeFormState>(field: K, value: ChallengeFormState[K]) => {
+    setForm((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const openCreateModal = () => {
+    setModalMode('create');
+    setEditingChallengeId(null);
+    setForm(defaultForm);
+    setIsModalOpen(true);
+  };
+
+  const openUpdateModal = (challenge: Challenge) => {
+    setModalMode('update');
+    setEditingChallengeId(challenge.id);
     setForm({
       title: challenge.title || '',
       category: challenge.category || 'Misc',
@@ -135,56 +197,27 @@ export default function AdminBoard() {
       hint: challenge.hint || '',
       hintCost: Number(challenge.hintCost) || 0,
     });
+    setIsModalOpen(true);
   };
 
-  const setField = <K extends keyof ChallengeFormState>(field: K, value: ChallengeFormState[K]) => {
-    setForm((prev) => ({ ...prev, [field]: value }));
+  const closeModal = () => {
+    if (saving) return;
+    setIsModalOpen(false);
   };
 
-  async function handleAddChallenge(e: React.FormEvent) {
+  const handleSaveChallenge = async (e: React.FormEvent) => {
     e.preventDefault();
-    setSaving(true);
-
-    try {
-      const response = await fetch('http://localhost:3001/api/admin/challenges', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify(form),
-      });
-
-      if (response.status === 401 || response.status === 403) {
-        handleUnauthorized();
-        return;
-      }
-
-      const data = await response.json();
-
-      if (data.success) {
-        toast.success(data.message || 'Challenge added.');
-        resetForm();
-        fetchChallenges();
-      } else {
-        toast.error(data.message || 'Failed to create challenge.');
-      }
-    } catch (err) {
-      console.error(err);
-      toast.error('Failed to create challenge.');
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function handleUpdateChallenge(e: React.FormEvent) {
-    e.preventDefault();
-    if (!selectedChallengeId) return;
 
     setSaving(true);
     try {
-      const response = await fetch(`http://localhost:3001/api/admin/challenges/${selectedChallengeId}`, {
-        method: 'PATCH',
+      const isUpdate = modalMode === 'update' && editingChallengeId !== null;
+      const endpoint = isUpdate
+        ? `http://localhost:3001/api/admin/challenges/${editingChallengeId}`
+        : 'http://localhost:3001/api/admin/challenges';
+      const method = isUpdate ? 'PATCH' : 'POST';
+
+      const response = await fetch(endpoint, {
+        method,
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
@@ -199,47 +232,50 @@ export default function AdminBoard() {
 
       const data = await response.json();
       if (data.success) {
-        toast.success(data.message || 'Challenge updated.');
+        toast.success(data.message || (isUpdate ? 'Challenge updated.' : 'Challenge created.'));
+        setIsModalOpen(false);
         fetchChallenges();
       } else {
-        toast.error(data.message || 'Failed to update challenge.');
+        toast.error(data.message || 'Failed to save challenge.');
       }
     } catch (err) {
       console.error(err);
-      toast.error('Failed to update challenge.');
+      toast.error('Failed to save challenge.');
     } finally {
       setSaving(false);
     }
-  }
+  };
 
-  async function handleDelete(id: number) {
-    if (!window.confirm("Are you sure you want to delete this challenge?")) return;
+  const handleDelete = async (id: number) => {
+    if (!window.confirm('Are you sure you want to delete this challenge?')) return;
 
-    const response = await fetch(`http://localhost:3001/api/admin/challenges/${id}`, {
-      method: 'DELETE',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify({}) 
-    });
+    try {
+      const response = await fetch(`http://localhost:3001/api/admin/challenges/${id}`, {
+        method: 'DELETE',
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
 
-    if (response.status === 401 || response.status === 403) {
-      handleUnauthorized();
-      return;
+      if (response.status === 401 || response.status === 403) {
+        handleUnauthorized();
+        return;
+      }
+
+      const data = await response.json();
+      if (data.success) {
+        toast.success('Challenge deleted.');
+        fetchChallenges();
+      } else {
+        toast.error(data.message || 'Failed to delete challenge.');
+      }
+    } catch (err) {
+      console.error(err);
+      toast.error('Failed to delete challenge.');
     }
+  };
 
-    const data = await response.json();
-    if (data.success) {
-      toast.success('Challenge deleted.');
-      if (selectedChallengeId === id) resetForm();
-      fetchChallenges();
-    } else {
-      toast.error(data.message || 'Failed to delete challenge.');
-    }
-  }
-
-  async function handleAcceptSubmission(id: number) {
+  const handleAcceptSubmission = async (id: number) => {
     try {
       const response = await fetch(`http://localhost:3001/api/admin/challenge-submissions/${id}/accept`, {
         method: 'PATCH',
@@ -265,9 +301,9 @@ export default function AdminBoard() {
       console.error(err);
       toast.error('Failed to accept submission.');
     }
-  }
+  };
 
-  async function handleRemoveSubmission(id: number) {
+  const handleRemoveSubmission = async (id: number) => {
     if (!window.confirm('Remove this pending submission?')) return;
 
     try {
@@ -294,303 +330,345 @@ export default function AdminBoard() {
       console.error(err);
       toast.error('Failed to remove submission.');
     }
-  }
-
-  const pendingSubmissions = submissions.filter((submission) => submission.status === 'pending');
-
-  const renderChallengeForm = () => (
-    <form
-      onSubmit={selectedChallengeId ? handleUpdateChallenge : handleAddChallenge}
-      style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}
-    >
-      <h3 style={{ marginTop: 0 }}>{selectedChallengeId ? 'Edit Selected Challenge' : 'Create New Challenge'}</h3>
-
-      <label style={{ fontWeight: 700 }}>
-        Title
-        <input
-          type="text"
-          value={form.title}
-          onChange={(e) => setField('title', e.target.value)}
-          required
-          style={{ display: 'block', marginTop: '4px', width: '100%', padding: '8px' }}
-        />
-      </label>
-
-      <label style={{ fontWeight: 700 }}>
-        Category
-        <select
-          value={form.category}
-          onChange={(e) => setField('category', e.target.value)}
-          style={{ display: 'block', marginTop: '4px', width: '100%', padding: '8px' }}
-        >
-          {categories.map((category) => (
-            <option key={category} value={category}>{category}</option>
-          ))}
-        </select>
-      </label>
-
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-        <label style={{ fontWeight: 700 }}>
-          Points
-          <input
-            type="number"
-            min={0}
-            value={form.points}
-            onChange={(e) => setField('points', Number(e.target.value))}
-            required
-            style={{ display: 'block', marginTop: '4px', width: '100%', padding: '8px' }}
-          />
-        </label>
-
-        <label style={{ fontWeight: 700 }}>
-          Difficulty
-          <select
-            value={form.difficulty}
-            onChange={(e) => setField('difficulty', e.target.value)}
-            style={{ display: 'block', marginTop: '4px', width: '100%', padding: '8px' }}
-          >
-            <option value="Easy">Easy</option>
-            <option value="Medium">Medium</option>
-            <option value="Hard">Hard</option>
-          </select>
-        </label>
-      </div>
-
-      <label style={{ fontWeight: 700 }}>
-        Secret Flag
-        <input
-          type="text"
-          value={form.flag}
-          onChange={(e) => setField('flag', e.target.value)}
-          placeholder={selectedChallengeId ? 'Leave blank to keep existing flag' : 'picoCTF{...}'}
-          required={!selectedChallengeId}
-          style={{ display: 'block', marginTop: '4px', width: '100%', padding: '8px' }}
-        />
-      </label>
-
-      <label style={{ fontWeight: 700 }}>
-        Author
-        <input
-          type="text"
-          value={form.author}
-          onChange={(e) => setField('author', e.target.value)}
-          style={{ display: 'block', marginTop: '4px', width: '100%', padding: '8px' }}
-        />
-      </label>
-
-      <label style={{ fontWeight: 700 }}>
-        Description
-        <textarea
-          value={form.description}
-          onChange={(e) => setField('description', e.target.value)}
-          rows={3}
-          style={{ display: 'block', marginTop: '4px', width: '100%', padding: '8px' }}
-        />
-      </label>
-
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 140px', gap: '10px' }}>
-        <label style={{ fontWeight: 700 }}>
-          Hint
-          <input
-            type="text"
-            value={form.hint}
-            onChange={(e) => setField('hint', e.target.value)}
-            style={{ display: 'block', marginTop: '4px', width: '100%', padding: '8px' }}
-          />
-        </label>
-
-        <label style={{ fontWeight: 700 }}>
-          Hint Cost
-          <input
-            type="number"
-            min={0}
-            value={form.hintCost}
-            onChange={(e) => setField('hintCost', Number(e.target.value))}
-            style={{ display: 'block', marginTop: '4px', width: '100%', padding: '8px' }}
-          />
-        </label>
-      </div>
-
-      <div style={{ display: 'flex', gap: '8px' }}>
-        <button
-          type="submit"
-          disabled={saving}
-          style={{
-            flex: 1,
-            padding: '10px',
-            backgroundColor: selectedChallengeId ? '#0d6efd' : '#28a745',
-            color: 'white',
-            border: 'none',
-            borderRadius: '4px',
-            fontWeight: 'bold',
-            cursor: 'pointer',
-          }}
-        >
-          {saving ? 'Saving...' : selectedChallengeId ? 'Update Challenge' : 'Add Challenge'}
-        </button>
-        <button
-          type="button"
-          onClick={resetForm}
-          style={{
-            padding: '10px 12px',
-            backgroundColor: '#6c757d',
-            color: 'white',
-            border: 'none',
-            borderRadius: '4px',
-            fontWeight: 'bold',
-            cursor: 'pointer',
-          }}
-        >
-          Clear
-        </button>
-      </div>
-
-      {selectedChallengeId && (
-        <p style={{ margin: 0, color: '#6c757d', fontSize: '0.9rem' }}>
-          Editing challenge ID #{selectedChallengeId}. Click another row to switch.
-        </p>
-      )}
-    </form>
-  );
+  };
 
   return (
-    <div style={{ display: 'grid', gap: '18px' }}>
-      <div style={{ display: 'grid', gridTemplateColumns: '1.15fr 0.85fr', gap: '18px', alignItems: 'start' }}>
-        <section style={{ border: '1px solid #dee2e6', borderRadius: '8px', backgroundColor: '#fff', overflow: 'hidden' }}>
-          <div style={{ padding: '12px 15px', borderBottom: '1px solid #dee2e6', fontWeight: 700 }}>
-            Challenges ({challenges.length})
+    <div className="space-y-6">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900/70 p-4">
+          <p className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">Total Challenges</p>
+          <p className="mt-1 text-2xl font-black text-slate-900 dark:text-white">{challenges.length}</p>
+        </div>
+        <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900/70 p-4">
+          <p className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">Pending Reviews</p>
+          <p className="mt-1 text-2xl font-black text-primary">{pendingSubmissions.length}</p>
+        </div>
+        <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900/70 p-4">
+          <p className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">Tracked Players</p>
+          <p className="mt-1 text-2xl font-black text-slate-900 dark:text-white">{users.length}</p>
+        </div>
+      </div>
+
+      <div className="flex flex-wrap gap-2">
+        {tabItems.map((tab) => (
+          <button
+            key={tab.key}
+            type="button"
+            onClick={() => setActiveTab(tab.key)}
+            className={`px-4 py-2 rounded-lg text-sm font-semibold border transition-colors inline-flex items-center gap-2 ${
+              activeTab === tab.key
+                ? 'bg-primary border-primary text-white shadow-sm shadow-primary/30'
+                : 'border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:border-primary'
+            }`}
+          >
+            <span className="material-symbols-outlined text-[18px]">{tab.icon}</span>
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {activeTab === 'challenges' && (
+        <section className="bg-white dark:bg-slate-900/70 border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden">
+          <div className="px-5 py-4 border-b border-slate-200 dark:border-slate-700 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <h2 className="text-lg font-bold text-slate-900 dark:text-white">Challenges ({challenges.length})</h2>
+            <button
+              type="button"
+              onClick={openCreateModal}
+              className="px-4 py-2 rounded-lg bg-primary text-white font-semibold hover:opacity-90 transition-opacity"
+            >
+              Create Challenge
+            </button>
           </div>
 
-          <div style={{ maxHeight: '520px', overflow: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-              <thead style={{ backgroundColor: '#f8f9fa', position: 'sticky', top: 0 }}>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[900px] text-left">
+              <thead className="bg-slate-50 dark:bg-slate-800/70 border-b border-slate-200 dark:border-slate-700">
                 <tr>
-                  <th style={{ textAlign: 'left', padding: '10px' }}>Title</th>
-                  <th style={{ textAlign: 'left', padding: '10px' }}>Category</th>
-                  <th style={{ textAlign: 'left', padding: '10px' }}>Pts</th>
-                  <th style={{ textAlign: 'left', padding: '10px' }}>Difficulty</th>
-                  <th style={{ textAlign: 'left', padding: '10px' }}>Created</th>
-                  <th style={{ textAlign: 'left', padding: '10px' }} />
+                  <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Title</th>
+                  <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Category</th>
+                  <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Points</th>
+                  <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Difficulty</th>
+                  <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Created</th>
+                  <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 text-right">Actions</th>
                 </tr>
               </thead>
-              <tbody>
-                {challenges.map((challenge) => {
-                  const selected = selectedChallengeId === challenge.id;
-                  return (
-                    <tr
-                      key={challenge.id}
-                      onClick={() => selectChallenge(challenge)}
-                      style={{
-                        backgroundColor: selected ? '#e7f1ff' : 'transparent',
-                        cursor: 'pointer',
-                        borderBottom: '1px solid #f1f3f5',
-                      }}
-                    >
-                      <td style={{ padding: '10px', fontWeight: 600 }}>{challenge.title}</td>
-                      <td style={{ padding: '10px' }}>{challenge.category}</td>
-                      <td style={{ padding: '10px' }}>{challenge.points}</td>
-                      <td style={{ padding: '10px' }}>{challenge.difficulty || 'Medium'}</td>
-                      <td style={{ padding: '10px' }}>
-                        {challenge.createdAt ? new Date(challenge.createdAt).toLocaleDateString() : '-'}
-                      </td>
-                      <td style={{ padding: '10px' }}>
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                {challenges.map((challenge) => (
+                  <tr key={challenge.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
+                    <td className="px-4 py-3 font-semibold text-slate-900 dark:text-white">{challenge.title}</td>
+                    <td className="px-4 py-3 text-slate-700 dark:text-slate-300">{challenge.category}</td>
+                    <td className="px-4 py-3 text-slate-700 dark:text-slate-300">{challenge.points}</td>
+                    <td className="px-4 py-3 text-slate-700 dark:text-slate-300">{challenge.difficulty || 'Medium'}</td>
+                    <td className="px-4 py-3 text-slate-600 dark:text-slate-400">
+                      {challenge.createdAt ? new Date(challenge.createdAt).toLocaleDateString() : '-'}
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex justify-end gap-2">
                         <button
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            handleDelete(challenge.id);
-                          }}
-                          style={{
-                            backgroundColor: '#dc3545',
-                            color: '#fff',
-                            border: 'none',
-                            padding: '6px 8px',
-                            borderRadius: '4px',
-                            fontWeight: 700,
-                            cursor: 'pointer',
-                          }}
+                          type="button"
+                          onClick={() => openUpdateModal(challenge)}
+                          className="px-3 py-1.5 rounded-md border border-blue-500 text-blue-600 dark:text-blue-300 dark:border-blue-400 hover:bg-blue-50 dark:hover:bg-blue-500/10 text-sm font-semibold"
+                        >
+                          Update
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDelete(challenge.id)}
+                          className="px-3 py-1.5 rounded-md border border-rose-500 text-rose-600 dark:text-rose-300 dark:border-rose-400 hover:bg-rose-50 dark:hover:bg-rose-500/10 text-sm font-semibold"
                         >
                           Delete
                         </button>
-                      </td>
-                    </tr>
-                  );
-                })}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>
         </section>
+      )}
 
-        <section style={{ border: '1px solid #dee2e6', padding: '16px', borderRadius: '8px', backgroundColor: '#f8f9fa' }}>
-          {renderChallengeForm()}
+      {activeTab === 'submissions' && (
+        <section className="bg-white dark:bg-slate-900/70 border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden">
+          <div className="px-5 py-4 border-b border-slate-200 dark:border-slate-700">
+            <h2 className="text-lg font-bold text-slate-900 dark:text-white">
+              Pending Laboratory Challenge Submissions ({pendingSubmissions.length})
+            </h2>
+          </div>
+
+          {pendingSubmissions.length === 0 ? (
+            <p className="px-5 py-6 text-slate-500 dark:text-slate-400">No pending submissions.</p>
+          ) : (
+            <div className="p-4 space-y-3">
+              {pendingSubmissions.map((submission) => (
+                <article
+                  key={submission.id}
+                  className="rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/40 p-4"
+                >
+                  <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+                    <div>
+                      <h3 className="font-bold text-slate-900 dark:text-white">{submission.title}</h3>
+                      <p className="text-sm text-slate-600 dark:text-slate-300 mt-1">
+                        {submission.category} • {submission.points} pts • {submission.difficulty} • by {submission.submittedBy}
+                      </p>
+                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                        Submitted {submission.createdAt ? new Date(submission.createdAt).toLocaleString() : '-'}
+                      </p>
+                    </div>
+
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => handleAcceptSubmission(submission.id)}
+                        className="px-3 py-2 rounded-md bg-emerald-600 text-white font-semibold hover:opacity-90 transition-opacity"
+                      >
+                        Accept
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveSubmission(submission.id)}
+                        className="px-3 py-2 rounded-md bg-rose-600 text-white font-semibold hover:opacity-90 transition-opacity"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  </div>
+
+                  {submission.description && (
+                    <p className="mt-3 text-sm text-slate-700 dark:text-slate-300 whitespace-pre-wrap">{submission.description}</p>
+                  )}
+                </article>
+              ))}
+            </div>
+          )}
         </section>
-      </div>
+      )}
 
-      <section style={{ border: '1px solid #dee2e6', borderRadius: '8px', backgroundColor: '#fff' }}>
-        <div style={{ padding: '12px 15px', borderBottom: '1px solid #dee2e6', fontWeight: 700 }}>
-          Pending Laboratory Challenge Submissions ({pendingSubmissions.length})
-        </div>
+      {activeTab === 'users' && (
+        <section className="bg-white dark:bg-slate-900/70 border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden">
+          <div className="px-5 py-4 border-b border-slate-200 dark:border-slate-700">
+            <h2 className="text-lg font-bold text-slate-900 dark:text-white">Players Overview ({users.length})</h2>
+          </div>
 
-        {pendingSubmissions.length === 0 ? (
-          <p style={{ padding: '14px 15px', margin: 0, color: '#6c757d' }}>
-            No pending submissions.
-          </p>
-        ) : (
-          <div style={{ display: 'grid', gap: '8px', padding: '10px' }}>
-            {pendingSubmissions.map((submission) => (
-              <article
-                key={submission.id}
-                style={{ border: '1px solid #e9ecef', borderRadius: '6px', padding: '12px', backgroundColor: '#f8f9fa' }}
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[700px] text-left">
+              <thead className="bg-slate-50 dark:bg-slate-800/70 border-b border-slate-200 dark:border-slate-700">
+                <tr>
+                  <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Username</th>
+                  <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Points</th>
+                  <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Rank</th>
+                  <th className="px-4 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Solved Challenges</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                {users.map((user) => (
+                  <tr key={user.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
+                    <td className="px-4 py-3 font-semibold text-slate-900 dark:text-white">{user.username}</td>
+                    <td className="px-4 py-3 text-slate-700 dark:text-slate-300">{user.score}</td>
+                    <td className="px-4 py-3 text-slate-700 dark:text-slate-300">#{user.rank}</td>
+                    <td className="px-4 py-3 text-slate-700 dark:text-slate-300">{user.solved_count}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
+
+      {isModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
+          <button
+            type="button"
+            onClick={closeModal}
+            className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
+            aria-label="Close modal"
+          />
+
+          <div className="relative w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-2xl">
+            <div className="px-6 py-5 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between">
+              <h3 className="text-xl font-bold text-slate-900 dark:text-white">
+                {modalMode === 'update' ? 'Update Challenge' : 'Create Challenge'}
+              </h3>
+              <button
+                type="button"
+                onClick={closeModal}
+                disabled={saving}
+                className="h-9 w-9 inline-flex items-center justify-center rounded-lg border border-slate-300 dark:border-slate-700 text-slate-500 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
               >
-                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', alignItems: 'center' }}>
-                  <div>
-                    <h4 style={{ margin: '0 0 4px 0' }}>{submission.title}</h4>
-                    <p style={{ margin: 0, color: '#6c757d', fontSize: '0.9rem' }}>
-                      {submission.category} • {submission.points} pts • {submission.difficulty} • by {submission.submittedBy}
-                    </p>
-                    <p style={{ margin: '4px 0 0 0', color: '#6c757d', fontSize: '0.85rem' }}>
-                      Submitted {submission.createdAt ? new Date(submission.createdAt).toLocaleString() : '-'}
-                    </p>
-                  </div>
-                  <div style={{ display: 'flex', gap: '8px' }}>
-                    <button
-                      onClick={() => handleAcceptSubmission(submission.id)}
-                      style={{
-                        backgroundColor: '#198754',
-                        color: '#fff',
-                        border: 'none',
-                        padding: '8px 10px',
-                        borderRadius: '4px',
-                        fontWeight: 700,
-                        cursor: 'pointer',
-                      }}
-                    >
-                      Accept
-                    </button>
-                    <button
-                      onClick={() => handleRemoveSubmission(submission.id)}
-                      style={{
-                        backgroundColor: '#dc3545',
-                        color: '#fff',
-                        border: 'none',
-                        padding: '8px 10px',
-                        borderRadius: '4px',
-                        fontWeight: 700,
-                        cursor: 'pointer',
-                      }}
-                    >
-                      Remove
-                    </button>
-                  </div>
+                <span className="material-symbols-outlined text-[20px]">close</span>
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveChallenge} className="p-6 space-y-4">
+              <div>
+                <label className="block text-sm font-semibold text-slate-700 dark:text-slate-300 mb-1">Title</label>
+                <input
+                  type="text"
+                  value={form.title}
+                  onChange={(e) => setField('title', e.target.value)}
+                  className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 p-3 text-slate-900 dark:text-white"
+                  required
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 dark:text-slate-300 mb-1">Category</label>
+                  <select
+                    value={form.category}
+                    onChange={(e) => setField('category', e.target.value)}
+                    className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 p-3 text-slate-900 dark:text-white"
+                  >
+                    {categories.map((category) => (
+                      <option key={category} value={category}>{category}</option>
+                    ))}
+                  </select>
                 </div>
 
-                {submission.description && (
-                  <p style={{ margin: '10px 0 0 0', whiteSpace: 'pre-wrap' }}>{submission.description}</p>
-                )}
-              </article>
-            ))}
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 dark:text-slate-300 mb-1">Difficulty</label>
+                  <select
+                    value={form.difficulty}
+                    onChange={(e) => setField('difficulty', e.target.value)}
+                    className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 p-3 text-slate-900 dark:text-white"
+                  >
+                    <option value="Easy">Easy</option>
+                    <option value="Medium">Medium</option>
+                    <option value="Hard">Hard</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 dark:text-slate-300 mb-1">Points</label>
+                  <input
+                    type="number"
+                    min={0}
+                    value={form.points}
+                    onChange={(e) => setField('points', Number(e.target.value))}
+                    className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 p-3 text-slate-900 dark:text-white"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 dark:text-slate-300 mb-1">Hint Cost</label>
+                  <input
+                    type="number"
+                    min={0}
+                    value={form.hintCost}
+                    onChange={(e) => setField('hintCost', Number(e.target.value))}
+                    className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 p-3 text-slate-900 dark:text-white"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Secret Flag {modalMode === 'update' && <span className="font-normal text-xs">(optional when updating)</span>}
+                </label>
+                <input
+                  type="text"
+                  value={form.flag}
+                  onChange={(e) => setField('flag', e.target.value)}
+                  placeholder={modalMode === 'update' ? 'Leave blank to keep existing flag' : 'flag{...}'}
+                  className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 p-3 text-slate-900 dark:text-white"
+                  required={modalMode === 'create'}
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-semibold text-slate-700 dark:text-slate-300 mb-1">Author</label>
+                <input
+                  type="text"
+                  value={form.author}
+                  onChange={(e) => setField('author', e.target.value)}
+                  className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 p-3 text-slate-900 dark:text-white"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-semibold text-slate-700 dark:text-slate-300 mb-1">Description</label>
+                <textarea
+                  value={form.description}
+                  onChange={(e) => setField('description', e.target.value)}
+                  rows={4}
+                  className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 p-3 text-slate-900 dark:text-white"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-semibold text-slate-700 dark:text-slate-300 mb-1">Hint</label>
+                <input
+                  type="text"
+                  value={form.hint}
+                  onChange={(e) => setField('hint', e.target.value)}
+                  className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 p-3 text-slate-900 dark:text-white"
+                />
+              </div>
+
+              <div className="pt-2 flex flex-col-reverse sm:flex-row sm:justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={closeModal}
+                  disabled={saving}
+                  className="px-4 py-2 rounded-lg border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-60"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={saving}
+                  className="px-5 py-2 rounded-lg bg-primary text-white font-bold hover:opacity-90 transition-opacity disabled:opacity-60"
+                >
+                  {saving ? 'Saving...' : modalMode === 'update' ? 'Save Changes' : 'Create Challenge'}
+                </button>
+              </div>
+            </form>
           </div>
-        )}
-      </section>
+        </div>
+      )}
     </div>
   );
 }

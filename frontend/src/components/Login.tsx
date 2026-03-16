@@ -52,9 +52,10 @@ export default function Login({ onSwitchToSignup }: LoginProps) {
             <span className="material-symbols-outlined text-4xl">terminal</span>
           </div>
           <h1 className="text-3xl font-bold tracking-tight text-slate-800 dark:text-white mb-2">
-            Cipher<span className="text-primary">Core</span>
+            <Link to="/" className="inline-block hover:opacity-90 transition-opacity">
+              Cipher<span className="text-primary">Core</span>
+            </Link>
           </h1>
-          <p className="text-slate-500 dark:text-secondary font-medium">Cybersecurity CTF Arena</p>
         </div>
 
         <div className="cipher-card bg-white/80 dark:bg-slate-900/80 border border-white dark:border-slate-800 shadow-2xl rounded-3xl p-8 md:p-10">
@@ -79,7 +80,6 @@ export default function Login({ onSwitchToSignup }: LoginProps) {
             <div>
               <div className="flex justify-between items-center mb-1.5 ml-1">
                 <label className="block text-sm font-medium text-slate-600 dark:text-slate-400">Password</label>
-                <a href="#" className="text-xs font-semibold text-primary hover:underline">Forgot?</a>
               </div>
               <div className="relative">
                 <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-lg">lock</span>
@@ -105,10 +105,6 @@ export default function Login({ onSwitchToSignup }: LoginProps) {
           <p className="text-center mt-8 text-slate-500 dark:text-slate-400">
             New operative? 
             <button onClick={onSwitchToSignup} className="text-primary font-bold hover:underline ml-1">Create an account</button>
-          </p>
-
-          <p className="text-center mt-2 text-slate-500 dark:text-slate-400 text-sm">
-            Admin access? <Link to="/admin/login" className="text-primary font-bold hover:underline ml-1">Go to admin login</Link>
           </p>
         </div>
       </main>

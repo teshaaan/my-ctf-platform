@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
+import SiteFooter from './SiteFooter';
 
 interface LandingPageProps {
   onStartClick: () => void;
@@ -51,7 +52,7 @@ export default function LandingPage({ onStartClick }: LandingPageProps) {
             <nav className="hidden md:flex items-center space-x-8">
               <a className="text-sm font-medium hover:text-primary transition-colors text-navy dark:text-steel dark:hover:text-white" href="#">Dashboard</a>
               <a className="text-sm font-medium hover:text-primary transition-colors text-navy dark:text-steel dark:hover:text-white" href="#">Challenges</a>
-              <a className="text-sm font-medium hover:text-primary transition-colors text-navy dark:text-steel dark:hover:text-white" href="#">Leaderboard</a>
+              <a className="text-sm font-medium hover:text-primary transition-colors text-navy dark:text-steel dark:hover:text-white" href="#">Scoreboard</a>
             </nav>
             <div className="flex items-center gap-4">
               <button onClick={toggleTheme} className="p-2 rounded-full hover:bg-steel/10 transition-colors">
@@ -88,11 +89,11 @@ export default function LandingPage({ onStartClick }: LandingPageProps) {
             </div>
             
             <h1 className="text-5xl md:text-7xl font-extrabold text-navy dark:text-white mb-6 leading-[1.1]">
-              Master the Art of <span className="text-primary italic">Hacking</span>
+              Conquer the world of <span className="text-primary italic">CTFs.</span>
             </h1>
             
             <p className="text-lg md:text-xl text-steel dark:text-steel mb-10 leading-relaxed font-light">
-              Join the ultimate cybersecurity playground. Solve complex puzzles, climb the leaderboard, and earn your place among the elite digital defenders.
+              Hope y'all have a blast! This was just done for the love of the game.
             </p>
             
             <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
@@ -102,23 +103,21 @@ export default function LandingPage({ onStartClick }: LandingPageProps) {
             </div>
             
             {/* STATS */}
-            <div className="mt-16 grid grid-cols-2 md:grid-cols-4 gap-8 text-center border-t border-steel/20 pt-10">
-              <div><div className="text-2xl font-bold text-navy dark:text-white">1,200+</div><div className="text-sm text-steel">Active Challenges</div></div>
-              <div><div className="text-2xl font-bold text-navy dark:text-white">50k+</div><div className="text-sm text-steel">Users Globally</div></div>
-              <div><div className="text-2xl font-bold text-navy dark:text-white">$25k</div><div className="text-sm text-steel">Season Rewards</div></div>
-              <div><div className="text-2xl font-bold text-navy dark:text-white">24/7</div><div className="text-sm text-steel">Live Support</div></div>
+            <div className="mt-16 border-t border-steel/20 pt-8">
+              <div className="grid grid-cols-6 gap-2 md:gap-4 text-center">
+                <div><div className="text-base md:text-xl font-bold text-navy dark:text-white">10%</div><div className="text-[11px] md:text-xs text-steel">Luck</div></div>
+                <div><div className="text-base md:text-xl font-bold text-navy dark:text-white">20%</div><div className="text-[11px] md:text-xs text-steel">Skill</div></div>
+                <div><div className="text-base md:text-xl font-bold text-navy dark:text-white">15%</div><div className="text-[11px] md:text-xs text-steel leading-tight">Concentrated power of will</div></div>
+                <div><div className="text-base md:text-xl font-bold text-navy dark:text-white">5%</div><div className="text-[11px] md:text-xs text-steel">Pleasure</div></div>
+                <div><div className="text-base md:text-xl font-bold text-navy dark:text-white">50%</div><div className="text-[11px] md:text-xs text-steel">Pain</div></div>
+                <div><div className="text-base md:text-xl font-bold text-navy dark:text-white">100%</div><div className="text-[11px] md:text-xs text-steel leading-tight">Reason to remember the name</div></div>
+              </div>
             </div>
           </div>
         </div>
       </main>
 
-      {/* FOOTER */}
-      <footer className="py-12 border-t border-steel/10 bg-background-light dark:bg-background-dark relative z-10">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
-          <span className="font-mono font-bold text-navy dark:text-white">CipherCore</span>
-          <div className="text-xs text-steel mt-2">© 2024 CipherCore Platform. Built for the future of security.</div>
-        </div>
-      </footer>
+      <SiteFooter className="relative z-10" />
     </div>
   );
 }

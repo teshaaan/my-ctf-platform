@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { useAuth } from '../context/AuthContext';
 
@@ -68,10 +68,13 @@ export default function Signup({ onSwitchToLogin }: SignupProps) {
         
         <div className="text-center mb-8">
           <div className="inline-flex items-center justify-center p-3 mb-4 bg-primary rounded-xl text-white shadow-lg">
-            <span className="material-symbols-outlined text-3xl">security</span>
+            <span className="material-symbols-outlined text-3xl">terminal</span>
           </div>
           <h1 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-white mb-2">
-            Join <span className="font-mono text-primary">CipherCore</span>
+            Join{' '}
+            <Link to="/" className="font-mono text-primary hover:underline focus-visible:underline outline-none">
+              CipherCore
+            </Link>
           </h1>
           <p className="text-slate-500 dark:text-accent-grey">Start your journey into the world of CTF.</p>
         </div>

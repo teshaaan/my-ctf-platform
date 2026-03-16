@@ -260,7 +260,7 @@ export default function ChallengeDetail({ challenge, onBack, onSolved }: Challen
             <span className="material-symbols-outlined text-sm">bolt</span> {challenge.points} Points
           </span>
           <span className="flex items-center gap-1 text-sm text-amber-600 dark:text-amber-400 font-bold">
-            <span className="material-symbols-outlined text-sm">savings</span> Reward Now: {awardedPoints} Points
+            <span className="material-symbols-outlined text-sm"></span> Reward Now: {awardedPoints} Points
           </span>
         </div>
         <h1 className="text-4xl font-bold mb-4 text-slate-900 dark:text-white">{challenge.title}</h1>
@@ -282,11 +282,9 @@ export default function ChallengeDetail({ challenge, onBack, onSolved }: Challen
               Description
             </h2>
             <div className="prose prose-slate dark:prose-invert max-w-none text-slate-700 dark:text-slate-300">
-              <p>{challenge.description || `Welcome to the ${challenge.title} challenge. We've detected an anomaly in the target system. Your objective is to exploit this vulnerability and retrieve the secret flag.`}</p>
-              <p>Analyze the provided target and see if you can find the hidden message. The flag format is <code>picoCTF&#123;flag_here&#125;</code>.</p>
               
               <div className="bg-slate-50 dark:bg-slate-800/50 p-4 rounded border-l-4 border-primary mt-6">
-                <p className="text-sm italic mb-0 font-mono">"Look closely at the source, sometimes the server speaks in codes."</p>
+                <p className="text-sm italic mb-0 font-mono">{challenge.description}</p>
               </div>
             </div>
           </div>
@@ -374,7 +372,7 @@ export default function ChallengeDetail({ challenge, onBack, onSolved }: Challen
                   value={flag}
                   onChange={(e) => setFlag(e.target.value)}
                   disabled={isSolved}
-                  placeholder="picoCTF{...}" 
+                  placeholder="CTP{...}" 
                   className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-3 font-mono focus:ring-primary focus:border-primary transition-all text-slate-900 dark:text-white" 
                 />
               </div>

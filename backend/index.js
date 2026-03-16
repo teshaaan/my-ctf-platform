@@ -111,6 +111,10 @@ const ensureChallengeSubmissionsTable = async () => {
     `);
 };
 
+const ensureUsersTableColumns = async () => {
+    await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS email VARCHAR(255)');
+};
+
 const createAuthToken = (user) => {
     return jwt.sign(
         { id: user.id, username: user.username, role: user.role },
@@ -163,14 +167,19 @@ app.post('/api/signup', signupRateLimiter, async (req, res) => {
             return res.status(400).json({ success: false, message: "Username already taken." });
         }
 
+        const emailCheck = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
+        if (emailCheck.rows.length > 0) {
+            return res.status(400).json({ success: false, message: "Email already in use." });
+        }
+
         // 2. Hash the password (10 rounds of salt)
         const saltRounds = 10;
         const hashedPassword = await bcrypt.hash(password, saltRounds);
 
         // 3. Insert into DB
         const newUser = await pool.query(
-            "INSERT INTO users (username, password_hash, role, score) VALUES ($1, $2, 'player', 0) RETURNING *",
-            [username, hashedPassword]
+            "INSERT INTO users (username, email, password_hash, role, score) VALUES ($1, $2, $3, 'player', 0) RETURNING *",
+            [username, email, hashedPassword]
         );
 
         // 4. Create the Token
@@ -294,6 +303,76 @@ app.get('/api/me/hints', verifyToken, async (req, res) => {
     } catch (err) {
         console.error(err);
         res.status(500).json({ success: false, message: 'Server error.' });
+    }
+});
+
+app.get('/api/me/profile', verifyToken, async (req, res) => {
+    try {
+        const result = await pool.query(
+            'SELECT username, email FROM users WHERE id = $1 LIMIT 1',
+            [req.user.id]
+        );
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ success: false, message: 'User not found.' });
+        }
+
+        const user = result.rows[0];
+        return res.json({
+            success: true,
+            user: {
+                username: user.username,
+                email: user.email || 'No email set',
+            },
+        });
+    } catch (err) {
+        console.error(err);
+        return res.status(500).json({ success: false, message: 'Failed to load profile.' });
+    }
+});
+
+app.patch('/api/me/password', verifyToken, async (req, res) => {
+    const { currentPassword, newPassword } = req.body;
+
+    if (!currentPassword || !newPassword) {
+        return res.status(400).json({ success: false, message: 'Current and new passwords are required.' });
+    }
+
+    if (!isStrongPassword(String(newPassword))) {
+        return res.status(400).json({
+            success: false,
+            message: 'New password must be 8+ chars and include uppercase, lowercase, number, and symbol.',
+        });
+    }
+
+    try {
+        const userResult = await pool.query(
+            'SELECT id, password_hash FROM users WHERE id = $1 LIMIT 1',
+            [req.user.id]
+        );
+
+        if (userResult.rows.length === 0) {
+            return res.status(404).json({ success: false, message: 'User not found.' });
+        }
+
+        const user = userResult.rows[0];
+        const validPassword = await bcrypt.compare(String(currentPassword), user.password_hash);
+        if (!validPassword) {
+            return res.status(400).json({ success: false, message: 'Current password is incorrect.' });
+        }
+
+        const isSamePassword = await bcrypt.compare(String(newPassword), user.password_hash);
+        if (isSamePassword) {
+            return res.status(400).json({ success: false, message: 'New password must be different from current password.' });
+        }
+
+        const nextHash = await bcrypt.hash(String(newPassword), 10);
+        await pool.query('UPDATE users SET password_hash = $1 WHERE id = $2', [nextHash, req.user.id]);
+
+        return res.json({ success: true, message: 'Password changed successfully.' });
+    } catch (err) {
+        console.error(err);
+        return res.status(500).json({ success: false, message: 'Failed to update password.' });
     }
 });
 
@@ -520,6 +599,35 @@ app.get('/api/me/dashboard', verifyToken, async (req, res) => {
     }
 });
 
+app.get('/api/admin/users-summary', verifyToken, requireAdmin, async (req, res) => {
+    try {
+        const result = await pool.query(
+            `SELECT
+                ranked.id,
+                ranked.username,
+                ranked.score,
+                ranked.rank,
+                COALESCE(COUNT(s.id), 0)::int AS solved_count
+             FROM (
+                 SELECT
+                    u.id,
+                    u.username,
+                    u.score,
+                    DENSE_RANK() OVER (ORDER BY u.score DESC, u.id ASC) AS rank
+                 FROM users u
+             ) ranked
+             LEFT JOIN solves s ON s.user_id = ranked.id
+             GROUP BY ranked.id, ranked.username, ranked.score, ranked.rank
+             ORDER BY ranked.rank ASC, ranked.username ASC`
+        );
+
+        return res.json({ success: true, users: result.rows });
+    } catch (err) {
+        console.error(err);
+        return res.status(500).json({ success: false, message: 'Failed to load user summary.' });
+    }
+});
+
 // NEW ROUTE: Secure Admin Dashboard (Create Challenges)
 app.post('/api/admin/challenges', verifyToken, requireAdmin, async (req, res) => {
     // Now accepting category, points and difficulty from the frontend.
@@ -641,11 +749,30 @@ app.delete('/api/admin/challenges/:id', verifyToken, requireAdmin, async (req, r
 
 app.post('/api/lab/challenge-submissions', verifyToken, async (req, res) => {
     const { title, category, points, difficulty, flag, description, hint, hintCost } = req.body;
+    const sanitizedTitle = String(title || '').trim();
+    const sanitizedCategory = String(category || '').trim();
+    const sanitizedDifficulty = String(difficulty || '').trim();
+    const sanitizedFlag = String(flag || '').trim();
+    const sanitizedDescription = String(description || '').trim();
+    const sanitizedHint = String(hint || '').trim();
     const parsedPoints = Number.parseInt(points, 10);
     const parsedHintCost = Number.parseInt(hintCost, 10);
 
-    if (!title || !category || !flag || !Number.isFinite(parsedPoints)) {
-        return res.status(400).json({ success: false, message: 'Title, category, points, and flag are required.' });
+    if (
+        !sanitizedTitle ||
+        !sanitizedCategory ||
+        !sanitizedDifficulty ||
+        !sanitizedFlag ||
+        !sanitizedDescription ||
+        !sanitizedHint ||
+        !Number.isFinite(parsedPoints) ||
+        !Number.isFinite(parsedHintCost)
+    ) {
+        return res.status(400).json({ success: false, message: 'All challenge fields are required.' });
+    }
+
+    if (parsedPoints < 0 || parsedHintCost < 0) {
+        return res.status(400).json({ success: false, message: 'Points and hint cost must be 0 or greater.' });
     }
 
     try {
@@ -664,14 +791,14 @@ app.post('/api/lab/challenge-submissions', verifyToken, async (req, res) => {
             RETURNING id, status, created_at`,
             [
                 req.user.id,
-                String(title).trim(),
-                String(category).trim(),
+                sanitizedTitle,
+                sanitizedCategory,
                 parsedPoints,
-                normalizeDifficulty(difficulty, parsedPoints),
-                String(flag).trim(),
-                String(description || '').trim(),
-                String(hint || '').trim(),
-                Number.isFinite(parsedHintCost) ? Math.max(0, parsedHintCost) : 0,
+                normalizeDifficulty(sanitizedDifficulty, parsedPoints),
+                sanitizedFlag,
+                sanitizedDescription,
+                sanitizedHint,
+                parsedHintCost,
             ]
         );
 
@@ -977,6 +1104,32 @@ app.patch('/api/lab/notebooks/:notebookId', verifyToken, async (req, res) => {
     }
 });
 
+app.delete('/api/lab/notebooks/:notebookId', verifyToken, async (req, res) => {
+    const notebookId = Number.parseInt(req.params.notebookId, 10);
+
+    if (!Number.isFinite(notebookId)) {
+        return res.status(400).json({ success: false, message: 'Invalid notebook ID.' });
+    }
+
+    try {
+        const result = await pool.query(
+            `DELETE FROM user_notebooks
+             WHERE id = $1 AND user_id = $2
+             RETURNING id`,
+            [notebookId, req.user.id]
+        );
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ success: false, message: 'Notebook not found.' });
+        }
+
+        res.json({ success: true, message: 'Notebook deleted.' });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ success: false, message: 'Failed to delete notebook.' });
+    }
+});
+
 // 1. GET ROUTE: Fetch a user's note for a specific challenge
 app.get('/api/lab/notes/:challengeId', verifyToken, async (req, res) => {
     // The Bouncer verified the token, so we know exactly who this is:
@@ -1032,6 +1185,7 @@ app.post('/api/lab/notes', verifyToken, async (req, res) => {
 const PORT = 3001;
 
 Promise.all([
+    ensureUsersTableColumns(),
     ensureHintUnlocksTable(),
     ensureUserNotebooksTable(),
     ensureChallengesTableColumns(),

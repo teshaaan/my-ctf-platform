@@ -258,7 +258,7 @@ export default function ChallengeBoard() {
         <div>
           <h1 className="text-3xl font-bold text-secondary dark:text-white">Active Challenges</h1>
           <p className="text-accent dark:text-gray-400 mt-0.5 text-sm">
-            Filter and browse challenges with pagination.
+            Filter and browse challenges.
           </p>
         </div>
       </div>

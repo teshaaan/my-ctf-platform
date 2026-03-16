@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { useAuth } from '../context/AuthContext';
+import SiteFooter from './SiteFooter';
 
 export default function AdminLogin() {
   const [usernameInput, setUsernameInput] = useState('');
@@ -45,33 +46,51 @@ export default function AdminLogin() {
   };
 
   return (
-    <div style={{ padding: "50px", fontFamily: "sans-serif", textAlign: "center" }}>
-      <div style={{ border: "2px solid #dc3545", padding: "40px", display: "inline-block", borderRadius: "8px", backgroundColor: "#fff5f5" }}>
-        <h2 style={{ color: "#dc3545" }}>Restricted Area</h2>
-        <p style={{ fontWeight: "bold", marginBottom: "20px" }}>Admin Portal Login</p>
-        <form onSubmit={handleLogin} style={{ display: "flex", flexDirection: "column", gap: "10px", alignItems: "center" }}>
-          <input
-            type="text"
-            placeholder="Admin Username"
-            value={usernameInput}
-            onChange={(e) => setUsernameInput(e.target.value)}
-            required
-            style={{ padding: "10px", width: "250px", border: "1px solid #ccc", borderRadius: "4px" }}
-          />
-          <input
-            type="password"
-            placeholder="Admin Password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            required
-            style={{ padding: "10px", width: "250px", border: "1px solid #ccc", borderRadius: "4px" }}
-          />
-          <button type="submit" style={{ padding: "10px 20px", cursor: "pointer", backgroundColor: "#dc3545", color: "white", border: "none", borderRadius: "4px", width: "100%", fontWeight: "bold" }}>
-            Authenticate
-          </button>
-        </form>
-        {error && <p style={{ color: "red", marginTop: "15px", fontWeight: "bold", maxWidth: "250px" }}>{error}</p>}
-      </div>
+    <div className="min-h-screen flex flex-col bg-background-light dark:bg-background-dark">
+      <main className="flex-1 flex items-center justify-center p-6">
+        <div className="w-full max-w-md rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900/80 shadow-xl overflow-hidden">
+          <div className="px-6 py-5 border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/60">
+            <p className="text-xs uppercase tracking-widest font-semibold text-primary">Restricted Area</p>
+            <h2 className="mt-1 text-2xl font-black text-slate-900 dark:text-white">Admin Portal Login</h2>
+          </div>
+
+          <form onSubmit={handleLogin} className="px-6 py-6 space-y-4">
+            <div>
+              <label className="block text-sm font-semibold text-slate-700 dark:text-slate-300 mb-1">Username</label>
+              <input
+                type="text"
+                placeholder="Admin Username"
+                value={usernameInput}
+                onChange={(e) => setUsernameInput(e.target.value)}
+                required
+                className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 p-3 text-slate-900 dark:text-white"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-semibold text-slate-700 dark:text-slate-300 mb-1">Password</label>
+              <input
+                type="password"
+                placeholder="Admin Password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+                className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 p-3 text-slate-900 dark:text-white"
+              />
+            </div>
+
+            <button
+              type="submit"
+              className="w-full py-3 rounded-lg bg-primary text-white font-bold hover:opacity-90 transition-opacity"
+            >
+              Authenticate
+            </button>
+
+            {error && <p className="text-sm font-semibold text-primary text-center">{error}</p>}
+          </form>
+        </div>
+      </main>
+      <SiteFooter />
     </div>
   );
 }

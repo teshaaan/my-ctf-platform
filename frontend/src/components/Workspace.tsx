@@ -5,6 +5,8 @@ import { useAuth } from '../context/AuthContext';
 // import toast from 'react-hot-toast'; // Uncomment if you are using react-hot-toast
 import PythonCell from './PythonCell';
 
+const NOTEBOOK_TIME_CACHE_KEY = 'labNotebookLocalUpdatedAt';
+
 export default function Workspace() {
   const { notebookId } = useParams();
   const navigate = useNavigate();
@@ -15,10 +17,38 @@ export default function Workspace() {
   const [note, setNote] = useState<string>('');
   const [isSaving, setIsSaving] = useState(false);
   const [lastSaved, setLastSaved] = useState<string | null>(null);
+  const [isDarkMode, setIsDarkMode] = useState(
+    document.documentElement.classList.contains('dark')
+  );
 
   // Python Engine State
   const [pyodide, setPyodide] = useState<any>(null);
   const [snippets, setSnippets] = useState<{id: number, code: string}[]>([]);
+
+  const getNotebookTimeCache = () => {
+    try {
+      const raw = localStorage.getItem(NOTEBOOK_TIME_CACHE_KEY);
+      if (!raw) return {} as Record<string, number>;
+      const parsed = JSON.parse(raw) as Record<string, number>;
+      return parsed && typeof parsed === 'object' ? parsed : {};
+    } catch {
+      return {} as Record<string, number>;
+    }
+  };
+
+  const setNotebookLocalUpdatedAt = (id: number, epochMs: number) => {
+    const cache = getNotebookTimeCache();
+    cache[String(id)] = epochMs;
+    localStorage.setItem(NOTEBOOK_TIME_CACHE_KEY, JSON.stringify(cache));
+  };
+
+  const parseApiDate = (value: string | null | undefined) => {
+    if (!value) return NaN;
+    const parsed = new Date(value).getTime();
+    if (Number.isFinite(parsed)) return parsed;
+    const normalized = value.includes(' ') ? value.replace(' ', 'T') : value;
+    return new Date(normalized).getTime();
+  };
 
   // 1. Fetch the existing note when the page loads
   useEffect(() => {
@@ -33,8 +63,27 @@ export default function Workspace() {
           setTitle(data.notebook.title || 'Untitled Notebook');
           setQuestion(data.notebook.question || '');
           setNote(data.notebook.content || '');
-          if (data.notebook.updated_at) {
-            setLastSaved(new Date(data.notebook.updated_at).toLocaleTimeString());
+          const cache = getNotebookTimeCache();
+          const notebookIdKey = String(notebookId || '');
+          const localUpdatedAt = Number(cache[notebookIdKey]);
+          const apiUpdatedAt = parseApiDate(data.notebook.updated_at);
+
+          if (Number.isFinite(localUpdatedAt) && (!Number.isFinite(apiUpdatedAt) || localUpdatedAt >= apiUpdatedAt)) {
+            setLastSaved(
+              new Date(localUpdatedAt).toLocaleTimeString([], {
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit',
+              })
+            );
+          } else if (Number.isFinite(apiUpdatedAt)) {
+            setLastSaved(
+              new Date(apiUpdatedAt).toLocaleTimeString([], {
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit',
+              })
+            );
           }
           // Note: Later, you can also fetch saved Python snippets here!
           if (data.notebook.python_snippets) {
@@ -50,6 +99,17 @@ export default function Workspace() {
       fetchNote();
     }
   }, [notebookId, token]);
+
+  useEffect(() => {
+    const root = document.documentElement;
+    const syncTheme = () => setIsDarkMode(root.classList.contains('dark'));
+    syncTheme();
+
+    const observer = new MutationObserver(syncTheme);
+    observer.observe(root, { attributes: true, attributeFilter: ['class'] });
+
+    return () => observer.disconnect();
+  }, []);
 
   // 2. Load the Pyodide Engine Globally (Runs once on mount)
   useEffect(() => {
@@ -95,7 +155,20 @@ export default function Workspace() {
       const data = await response.json();
       if (data.success && data.notebook) {
         // toast.success("Notes saved!");
-        setLastSaved(new Date(data.notebook.updated_at).toLocaleTimeString());
+        const now = Date.now();
+        setLastSaved(
+          new Date(now).toLocaleTimeString([], {
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit',
+          })
+        );
+        if (notebookId) {
+          const numericNotebookId = Number(notebookId);
+          if (Number.isFinite(numericNotebookId)) {
+            setNotebookLocalUpdatedAt(numericNotebookId, now);
+          }
+        }
       }
     } catch (error) {
       console.error("Failed to save", error);
@@ -122,20 +195,20 @@ export default function Workspace() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-900 text-white flex flex-col p-4">
+    <div className="min-h-screen bg-background-light dark:bg-background-dark text-slate-900 dark:text-white flex flex-col p-4 transition-colors duration-300">
       {/* Header */}
       <div className="flex justify-between items-center mb-4">
-        <button onClick={() => navigate('/lab')} className="text-blue-400 hover:text-blue-300">
+        <button onClick={() => navigate('/lab')} className="text-primary hover:opacity-90 transition-opacity">
           &larr; Back to Laboratory
         </button>
         <div className="flex items-center gap-4">
-          <span className="text-sm text-gray-400">
+          <span className="text-sm text-slate-500 dark:text-slate-400">
             {lastSaved ? `Last saved: ${lastSaved}` : 'Not saved yet'}
           </span>
           <button 
             onClick={handleSave}
             disabled={isSaving}
-            className="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded text-white font-bold disabled:opacity-50"
+            className="bg-primary hover:opacity-90 px-4 py-2 rounded text-white font-bold disabled:opacity-50 transition-opacity"
           >
             {isSaving ? 'Saving...' : 'Save Notes'}
           </button>
@@ -146,24 +219,23 @@ export default function Workspace() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 flex-grow">
         
         {/* LEFT SIDE: Challenge Details & Python Engine */}
-        <div className="bg-gray-800 p-6 rounded-lg border border-gray-700 overflow-y-auto flex flex-col gap-6">
+        <div className="bg-white dark:bg-slate-800 p-6 rounded-lg border border-slate-200 dark:border-slate-700 overflow-y-auto flex flex-col gap-6">
           
           {/* Top of Left Side: Notebook Details */}
           <div>
             <h2 className="text-2xl font-bold mb-2">{title || 'Notebook'}</h2>
-            <span className="bg-purple-600 text-xs px-2 py-1 rounded">Notebook</span>
-            <p className="mt-4 text-gray-300 whitespace-pre-wrap">
+            <p className="mt-4 text-slate-600 dark:text-slate-300 whitespace-pre-wrap">
               {question || 'No question added for this notebook.'}
             </p>
           </div>
 
           {/* Bottom of Left Side: The Interactive Python Area */}
-          <div className="border-t border-gray-700 pt-6">
+          <div className="border-t border-slate-200 dark:border-slate-700 pt-6">
             <div className="flex justify-between items-center mb-4">
-              <h3 className="text-lg font-bold text-gray-200">Interactive Scripts</h3>
+              <h3 className="text-lg font-bold text-slate-700 dark:text-slate-200">Interactive Scripts</h3>
               <button 
                 onClick={addSnippet}
-                className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded text-sm font-bold transition-colors"
+                className="bg-primary hover:opacity-90 text-white px-3 py-1 rounded text-sm font-bold transition-opacity"
               >
                 + Add Python Environment
               </button>
@@ -182,6 +254,7 @@ export default function Workspace() {
                   key={snippet.id} 
                   pyodide={pyodide} 
                   initialCode={snippet.code}
+                  isDarkMode={isDarkMode}
                   onDelete={() => removeSnippet(snippet.id)}
                   onChangeCode={(newCode) => updateSnippetCode(snippet.id, newCode)}
                 />
@@ -192,7 +265,10 @@ export default function Workspace() {
         </div>
 
         {/* RIGHT SIDE: The Markdown Editor */}
-        <div className="bg-gray-800 rounded-lg border border-gray-700 overflow-hidden flex flex-col" data-color-mode="dark">
+        <div
+          className="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden flex flex-col"
+          data-color-mode={isDarkMode ? 'dark' : 'light'}
+        >
           <MDEditor
             value={note}
             onChange={(val) => setNote(val || '')}

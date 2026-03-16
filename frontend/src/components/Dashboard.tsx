@@ -92,7 +92,7 @@ export default function Dashboard({ username }: DashboardProps) {
  return (
    <div className="max-w-4xl mx-auto py-8 px-4">
      <header className="mb-6">
-       <h1 className="text-2xl font-bold text-secondary dark:text-white">
+       <h1 className="text-3xl font-bold text-secondary dark:text-white">
          Dashboard
        </h1>
        <p className="text-accent mt-1">Welcome, {username}</p>
@@ -100,7 +100,7 @@ export default function Dashboard({ username }: DashboardProps) {
 
 
      <section className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-5 mb-6">
-       <h2 className="text-lg font-semibold text-secondary dark:text-white mb-3">Resume Challenge</h2>
+       <h2 className="text-xl font-semibold text-secondary dark:text-white mb-3">Resume Challenge</h2>
 
        {loading && <p className="text-accent">Loading...</p>}
 
@@ -153,7 +153,7 @@ export default function Dashboard({ username }: DashboardProps) {
 
 
      <section className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-5 mb-6">
-       <h2 className="text-lg font-semibold text-secondary dark:text-white mb-4">
+       <h2 className="text-xl font-semibold text-secondary dark:text-white mb-4">
          Your Best Performing Categories
        </h2>
 
@@ -183,8 +183,8 @@ export default function Dashboard({ username }: DashboardProps) {
 
 
      <section className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-5">
-       <h2 className="text-lg font-semibold text-secondary dark:text-white mb-4">
-         Recent Solved Challenges
+       <h2 className="text-xl font-semibold text-secondary dark:text-white mb-4">
+         Recently Solved Challenges
        </h2>
 
 
