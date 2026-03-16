@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import toast from 'react-hot-toast';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
@@ -8,18 +8,114 @@ interface Challenge {
   title: string;
   category: string;
   points: number;
+  description?: string;
+  author?: string;
+  hint?: string;
+  hintCost?: number;
 }
 
 interface ChallengeDetailProps {
   challenge: Challenge;
   onBack: () => void; // Function to go back to the grid
+  onSolved: (challengeId: number) => void;
 }
 
-export default function ChallengeDetail({ challenge, onBack }: ChallengeDetailProps) {
+export default function ChallengeDetail({ challenge, onBack, onSolved }: ChallengeDetailProps) {
   const [flag, setFlag] = useState("");
   const [isSolved, setIsSolved] = useState(false);
+  const [isHintUnlocked, setIsHintUnlocked] = useState(false);
+  const [isUnlockingHint, setIsUnlockingHint] = useState(false);
+  const [awardedPoints, setAwardedPoints] = useState(challenge.points);
   const { token, logout } = useAuth();
   const navigate = useNavigate();
+  const hintCost = Number(challenge.hintCost) || 0;
+  const hasHint = Boolean(String(challenge.hint || '').trim());
+
+  useEffect(() => {
+    setIsHintUnlocked(false);
+    setIsSolved(false);
+    setFlag('');
+    setAwardedPoints(challenge.points);
+
+    const loadHintStatus = async () => {
+      if (!token) return;
+
+      try {
+        const response = await fetch('http://localhost:3001/api/me/hints', {
+          cache: 'no-store',
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        });
+
+        if (response.status === 401 || response.status === 403) {
+          logout();
+          toast.error('Session expired. Please log in again.');
+          navigate('/login', { replace: true });
+          return;
+        }
+
+        const result = await response.json();
+        if (result.success && Array.isArray(result.unlockedHintChallengeIds)) {
+          const unlocked = result.unlockedHintChallengeIds.includes(challenge.id);
+          setIsHintUnlocked(unlocked);
+          if (unlocked) {
+            setAwardedPoints(Math.max(0, challenge.points - hintCost));
+          }
+        }
+      } catch (err) {
+        console.error(err);
+      }
+    };
+
+    loadHintStatus();
+  }, [challenge.id, challenge.points, hintCost, token, logout, navigate]);
+
+  async function unlockHint() {
+    if (!hasHint || isHintUnlocked || isUnlockingHint) return;
+
+    setIsUnlockingHint(true);
+    const toastId = toast.loading('Unlocking hint...');
+
+    try {
+      const response = await fetch(`http://localhost:3001/api/challenges/${challenge.id}/hint/unlock`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      if (response.status === 401 || response.status === 403) {
+        toast.error('Session expired. Please log in again.', { id: toastId });
+        logout();
+        navigate('/login', { replace: true });
+        return;
+      }
+
+      const result = await response.json();
+      if (result.success) {
+        setIsHintUnlocked(true);
+        const newAwardedPoints = Number(result.awardedPoints);
+        const rewardNow = Number.isFinite(newAwardedPoints)
+          ? newAwardedPoints
+          : Math.max(0, challenge.points - hintCost);
+
+        if (Number.isFinite(newAwardedPoints)) {
+          setAwardedPoints(newAwardedPoints);
+        } else {
+          setAwardedPoints(Math.max(0, challenge.points - hintCost));
+        }
+        toast.success(`Hint unlocked. Reward is now ${rewardNow} pts.`, { id: toastId });
+      } else {
+        toast.error(result.message || 'Failed to unlock hint.', { id: toastId });
+      }
+    } catch (err) {
+      console.error(err);
+      toast.error('Failed to unlock hint.', { id: toastId });
+    } finally {
+      setIsUnlockingHint(false);
+    }
+  }
 
   async function submitFlag(e: React.FormEvent) {
     e.preventDefault();
@@ -46,9 +142,16 @@ export default function ChallengeDetail({ challenge, onBack }: ChallengeDetailPr
     const result = await response.json();
 
     if (result.success) {
-      toast.success(`Flag Captured! +${challenge.points} pts`, { id: toastId });
+      const finalAwardedPoints = Number(result.awardedPoints);
+      const safeAwardedPoints = Number.isFinite(finalAwardedPoints)
+        ? finalAwardedPoints
+        : awardedPoints;
+
+      toast.success(`Flag Captured! +${safeAwardedPoints} pts`, { id: toastId });
       setIsSolved(true);
       setFlag("Solved!");
+      setAwardedPoints(safeAwardedPoints);
+      onSolved(challenge.id);
     } else {
       toast.error(result.message || "Invalid flag.", { id: toastId });
     }
@@ -82,10 +185,13 @@ export default function ChallengeDetail({ challenge, onBack }: ChallengeDetailPr
           <span className="flex items-center gap-1 text-sm text-secondary dark:text-slate-400 font-bold">
             <span className="material-symbols-outlined text-sm">bolt</span> {challenge.points} Points
           </span>
+          <span className="flex items-center gap-1 text-sm text-amber-600 dark:text-amber-400 font-bold">
+            <span className="material-symbols-outlined text-sm">savings</span> Reward Now: {awardedPoints} Points
+          </span>
         </div>
         <h1 className="text-4xl font-bold mb-4 text-slate-900 dark:text-white">{challenge.title}</h1>
         <div className="flex items-center gap-4 text-sm text-slate-500 dark:text-slate-400">
-          <span className="flex items-center gap-1"><span className="material-symbols-outlined text-sm">person</span> By System_Admin</span>
+          <span className="flex items-center gap-1"><span className="material-symbols-outlined text-sm">person</span> By {challenge.author || 'System_Admin'}</span>
           <span className="flex items-center gap-1"><span className="material-symbols-outlined text-sm">visibility</span> Active Target</span>
         </div>
       </div>
@@ -102,7 +208,7 @@ export default function ChallengeDetail({ challenge, onBack }: ChallengeDetailPr
               Description
             </h2>
             <div className="prose prose-slate dark:prose-invert max-w-none text-slate-700 dark:text-slate-300">
-              <p>Welcome to the <strong>{challenge.title}</strong> challenge. We've detected an anomaly in the target system. Your objective is to exploit this vulnerability and retrieve the secret flag.</p>
+              <p>{challenge.description || `Welcome to the ${challenge.title} challenge. We've detected an anomaly in the target system. Your objective is to exploit this vulnerability and retrieve the secret flag.`}</p>
               <p>Analyze the provided target and see if you can find the hidden message. The flag format is <code>picoCTF&#123;flag_here&#125;</code>.</p>
               
               <div className="bg-slate-50 dark:bg-slate-800/50 p-4 rounded border-l-4 border-primary mt-6">
@@ -135,10 +241,32 @@ export default function ChallengeDetail({ challenge, onBack }: ChallengeDetailPr
                 <span className="material-symbols-outlined text-primary">lightbulb</span>
                 Hints
               </h3>
-              <button className="w-full text-left p-3 rounded bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors flex items-center justify-between text-slate-700 dark:text-slate-300">
-                <span className="text-sm">Hint 1 (Cost: 0 pts)</span>
-                <span className="material-symbols-outlined text-slate-400">lock_open</span>
-              </button>
+              {!hasHint && (
+                <div className="w-full text-left p-3 rounded bg-slate-50 dark:bg-slate-800 text-slate-500 dark:text-slate-400 text-sm">
+                  No hints available for this challenge.
+                </div>
+              )}
+
+              {hasHint && !isHintUnlocked && (
+                <button
+                  onClick={unlockHint}
+                  disabled={isUnlockingHint}
+                  className="w-full text-left p-3 rounded bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors flex items-center justify-between text-slate-700 dark:text-slate-300 disabled:opacity-60"
+                >
+                  <span className="text-sm">Hint 1 (Unlock: -{hintCost} pts)</span>
+                  <span className="material-symbols-outlined text-slate-400">lock</span>
+                </button>
+              )}
+
+              {hasHint && isHintUnlocked && (
+                <div className="w-full p-3 rounded bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-300">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-sm font-semibold">Hint 1 (Unlocked)</span>
+                    <span className="material-symbols-outlined text-amber-600 dark:text-amber-400">lock_open</span>
+                  </div>
+                  <p className="text-sm">{challenge.hint}</p>
+                </div>
+              )}
             </div>
 
           </div>
@@ -181,7 +309,7 @@ export default function ChallengeDetail({ challenge, onBack }: ChallengeDetailPr
                   <span className="material-symbols-outlined text-emerald-500">check_circle</span>
                   <div>
                     <h4 className="font-bold text-emerald-800 dark:text-emerald-400">Challenge Solved!</h4>
-                    <p className="text-sm text-emerald-700 dark:text-emerald-500">Excellent work, operative. {challenge.points} points have been added to your profile.</p>
+                    <p className="text-sm text-emerald-700 dark:text-emerald-500">Excellent work, operative. {awardedPoints} points have been added to your profile.</p>
                   </div>
                 </div>
               </div>

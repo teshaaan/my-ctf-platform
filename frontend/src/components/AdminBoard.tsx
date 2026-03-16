@@ -15,6 +15,7 @@ export default function AdminBoard() {
   const [flag, setFlag] = useState("");
   const [category, setCategory] = useState("Web Exploitation");
   const [points, setPoints] = useState<number>(100);
+  const [difficulty, setDifficulty] = useState('Easy');
   const [message, setMessage] = useState("");
   const [challenges, setChallenges] = useState<Challenge[]>([]);
   const { token, logout } = useAuth();
@@ -47,7 +48,7 @@ export default function AdminBoard() {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${token}`,
       },
-      body: JSON.stringify({ title, flag, category, points })
+      body: JSON.stringify({ title, flag, category, points, difficulty })
     });
 
     if (response.status === 401 || response.status === 403) {
@@ -62,6 +63,7 @@ export default function AdminBoard() {
       setTitle("");
       setFlag("");
       setPoints(100);
+      setDifficulty('Easy');
       fetchChallenges();
     }
   }
@@ -117,6 +119,15 @@ export default function AdminBoard() {
           <div>
             <label style={{ fontWeight: "bold", display: "block", marginBottom: "5px" }}>Points</label>
             <input type="number" value={points} onChange={(e) => setPoints(Number(e.target.value))} required style={{ padding: "10px", width: "100%", boxSizing: "border-box" }} />
+          </div>
+
+          <div>
+            <label style={{ fontWeight: "bold", display: "block", marginBottom: "5px" }}>Difficulty</label>
+            <select value={difficulty} onChange={(e) => setDifficulty(e.target.value)} style={{ padding: "10px", width: "100%", boxSizing: "border-box" }}>
+              <option value="Easy">Easy</option>
+              <option value="Medium">Medium</option>
+              <option value="Hard">Hard</option>
+            </select>
           </div>
           
           <div>

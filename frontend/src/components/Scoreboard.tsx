@@ -3,6 +3,7 @@ import { useState, useEffect } from 'react';
 interface UserScore {
   username: string;
   score: number;
+  rank: number;
 }
 
 interface ScoreboardProps {
@@ -26,9 +27,6 @@ export default function Scoreboard({ username }: ScoreboardProps) {
   const secondPlace = leaderboard[1];
   const thirdPlace = leaderboard[2];
 
-  // Helper to generate a cool robot avatar based on username
-  const getAvatar = (name: string) => `https://api.dicebear.com/7.x/bottts/svg?seed=${name}`;
-
   return (
     <div className="relative">
       <div className="absolute inset-0 cyber-grid opacity-[0.03] dark:opacity-[0.05] pointer-events-none"></div>
@@ -36,10 +34,7 @@ export default function Scoreboard({ username }: ScoreboardProps) {
       {/* HEADER SECTION */}
       <div className="mb-10 flex flex-col md:flex-row md:items-end justify-between gap-6 relative z-10">
         <div>
-          <h1 className="text-4xl font-extrabold text-slate-900 dark:text-white flex items-center gap-3">
-            <span className="material-symbols-outlined text-primary text-4xl">military_tech</span>
-            Global Rankings
-          </h1>
+          <h1 className="text-4xl font-extrabold text-slate-900 dark:text-white">Global Rankings</h1>
           <p className="mt-2 text-slate-500 dark:text-slate-400 max-w-2xl">
             Compete with security researchers worldwide. Rankings are updated in real-time based on successful challenge completions.
           </p>
@@ -53,18 +48,10 @@ export default function Scoreboard({ username }: ScoreboardProps) {
         <div className="order-2 md:order-1 flex flex-col items-center justify-end h-full">
           {secondPlace && (
             <div className="w-full bg-white dark:bg-slate-800/50 p-6 rounded-2xl border border-slate-200 dark:border-slate-700/50 text-center relative overflow-hidden group hover:border-slate-300 dark:hover:border-slate-500 transition-all">
-              <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
-                <span className="material-symbols-outlined text-7xl">military_tech</span>
-              </div>
               <div className="relative">
-                <div className="w-20 h-20 mx-auto mb-4 rounded-full p-1 bg-gradient-to-tr from-slate-300 to-slate-500">
-                  <img src={getAvatar(secondPlace.username)} alt="2nd" className="w-full h-full rounded-full bg-white dark:bg-slate-700" />
-                </div>
+                <p className="text-sm font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-300 mb-3">2nd</p>
                 <h3 className="font-bold text-xl mb-1 dark:text-white">{secondPlace.username}</h3>
                 <p className="text-primary font-mono font-bold text-2xl">{secondPlace.score} <span className="text-xs font-normal text-slate-400">PTS</span></p>
-                <div className="mt-4 inline-flex items-center gap-1 px-3 py-1 bg-slate-100 dark:bg-slate-700 rounded-full text-sm font-medium dark:text-white">
-                  <span className="material-symbols-outlined text-sm">workspace_premium</span> Silver League
-                </div>
               </div>
             </div>
           )}
@@ -76,17 +63,9 @@ export default function Scoreboard({ username }: ScoreboardProps) {
             <div className="w-full bg-white dark:bg-slate-800 p-8 rounded-3xl border-2 border-primary/30 dark:border-primary/50 text-center relative overflow-hidden shadow-2xl shadow-primary/10 group transform md:scale-110">
               <div className="absolute -top-10 -right-10 w-32 h-32 bg-primary/10 rounded-full blur-3xl group-hover:bg-primary/20 transition-all"></div>
               <div className="relative">
-                <div className="absolute -top-12 left-1/2 -translate-x-1/2">
-                  <span className="material-symbols-outlined text-5xl text-yellow-500 drop-shadow-[0_0_15px_rgba(234,179,8,0.5)]">emoji_events</span>
-                </div>
-                <div className="w-24 h-24 mx-auto mb-4 rounded-full p-1.5 bg-gradient-to-tr from-yellow-400 via-primary to-orange-500">
-                  <img src={getAvatar(firstPlace.username)} alt="1st" className="w-full h-full rounded-full bg-white dark:bg-slate-700" />
-                </div>
+                <p className="text-sm font-semibold uppercase tracking-wider text-yellow-600 dark:text-yellow-400 mb-3">1st</p>
                 <h3 className="font-black text-2xl mb-1 text-slate-900 dark:text-white tracking-tight">{firstPlace.username}</h3>
                 <p className="text-primary font-mono font-black text-3xl">{firstPlace.score} <span className="text-xs font-normal text-slate-400">PTS</span></p>
-                <div className="mt-4 inline-flex items-center gap-1 px-4 py-1.5 bg-primary/10 dark:bg-primary/20 text-primary rounded-full text-sm font-bold border border-primary/20">
-                  <span className="material-symbols-outlined text-sm">verified</span> Elite Sentinel
-                </div>
               </div>
             </div>
           )}
@@ -96,18 +75,10 @@ export default function Scoreboard({ username }: ScoreboardProps) {
         <div className="order-3 flex flex-col items-center justify-end h-full">
           {thirdPlace && (
             <div className="w-full bg-white dark:bg-slate-800/50 p-6 rounded-2xl border border-slate-200 dark:border-slate-700/50 text-center relative overflow-hidden group hover:border-slate-300 dark:hover:border-slate-500 transition-all">
-              <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
-                <span className="material-symbols-outlined text-7xl">military_tech</span>
-              </div>
               <div className="relative">
-                <div className="w-20 h-20 mx-auto mb-4 rounded-full p-1 bg-gradient-to-tr from-orange-500 to-amber-700">
-                  <img src={getAvatar(thirdPlace.username)} alt="3rd" className="w-full h-full rounded-full bg-white dark:bg-slate-700" />
-                </div>
+                <p className="text-sm font-semibold uppercase tracking-wider text-amber-700 dark:text-amber-400 mb-3">3rd</p>
                 <h3 className="font-bold text-xl mb-1 dark:text-white">{thirdPlace.username}</h3>
                 <p className="text-primary font-mono font-bold text-2xl">{thirdPlace.score} <span className="text-xs font-normal text-slate-400">PTS</span></p>
-                <div className="mt-4 inline-flex items-center gap-1 px-3 py-1 bg-slate-100 dark:bg-slate-700 rounded-full text-sm font-medium dark:text-white">
-                  <span className="material-symbols-outlined text-sm">stars</span> Bronze Veteran
-                </div>
               </div>
             </div>
           )}
@@ -122,7 +93,6 @@ export default function Scoreboard({ username }: ScoreboardProps) {
               <tr className="bg-slate-50 dark:bg-slate-900/50 border-b border-slate-200 dark:border-slate-700">
                 <th className="px-6 py-5 font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider text-xs">Rank</th>
                 <th className="px-6 py-5 font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider text-xs">Username</th>
-                <th className="px-6 py-5 font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider text-xs">Est. Solves</th>
                 <th className="px-6 py-5 font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider text-xs text-right">Points</th>
               </tr>
             </thead>
@@ -142,17 +112,9 @@ export default function Scoreboard({ username }: ScoreboardProps) {
                   <tr key={user.username} className={`transition-colors ${isCurrentUser ? 'bg-primary/5 dark:bg-primary/10 border-l-4 border-primary' : 'hover:bg-slate-50/80 dark:hover:bg-slate-700/30'}`}>
                     <td className="px-6 py-4">{rankBadge}</td>
                     <td className="px-6 py-4">
-                      <div className="flex items-center gap-3">
-                        <img src={getAvatar(user.username)} className={`w-9 h-9 rounded-full ${isCurrentUser ? 'border border-primary' : 'bg-slate-200 dark:bg-slate-700'}`} alt="avatar" />
-                        <span className={`font-bold ${isCurrentUser ? 'text-primary' : 'text-slate-900 dark:text-white'}`}>
-                          {user.username} {isCurrentUser && "(You)"}
-                        </span>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4">
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-mono dark:text-gray-300">~{Math.floor(user.score / 100)}</span>
-                      </div>
+                      <span className={`font-bold ${isCurrentUser ? 'text-primary' : 'text-slate-900 dark:text-white'}`}>
+                        {user.username} {isCurrentUser && "(You)"}
+                      </span>
                     </td>
                     <td className={`px-6 py-4 text-right font-mono font-bold ${isCurrentUser ? 'text-primary' : 'text-slate-700 dark:text-slate-300'}`}>
                       {user.score}
@@ -162,7 +124,7 @@ export default function Scoreboard({ username }: ScoreboardProps) {
               })}
               {leaderboard.length === 0 && (
                 <tr>
-                  <td colSpan={4} className="px-6 py-8 text-center text-slate-500 dark:text-slate-400">
+                  <td colSpan={3} className="px-6 py-8 text-center text-slate-500 dark:text-slate-400">
                     No users on the scoreboard yet. Be the first!
                   </td>
                 </tr>
