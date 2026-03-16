@@ -8,6 +8,7 @@ interface Challenge {
   title: string;
   category: string;
   points: number;
+  difficulty?: string;
   description?: string;
   author?: string;
   hint?: string;
@@ -25,6 +26,7 @@ export default function ChallengeDetail({ challenge, onBack, onSolved }: Challen
   const [isSolved, setIsSolved] = useState(false);
   const [isHintUnlocked, setIsHintUnlocked] = useState(false);
   const [isUnlockingHint, setIsUnlockingHint] = useState(false);
+  const [isCreatingNotebook, setIsCreatingNotebook] = useState(false);
   const [awardedPoints, setAwardedPoints] = useState(challenge.points);
   const { token, logout } = useAuth();
   const navigate = useNavigate();
@@ -157,6 +159,78 @@ export default function ChallengeDetail({ challenge, onBack, onSolved }: Challen
     }
   }
 
+  async function handleAddToNotes() {
+    if (isCreatingNotebook) return;
+
+    setIsCreatingNotebook(true);
+    const toastId = toast.loading('Creating notebook...');
+
+    try {
+      const notebookTitle = `${challenge.title} Notes`;
+      const notebookQuestion = challenge.description || `Notes and documentation for ${challenge.title}`;
+      const notebookContent = [
+        `# ${challenge.title}`,
+        '',
+        '## Challenge Details',
+        `- ID: ${challenge.id}`,
+        `- Category: ${challenge.category}`,
+        `- Difficulty: ${challenge.difficulty || 'Unknown'}`,
+        `- Points: ${challenge.points}`,
+        `- Hint Cost: ${hintCost}`,
+        '',
+        '## Question / Objective',
+        notebookQuestion,
+        '',
+        '## Recon',
+        '- ',
+        '',
+        '## Exploitation Steps',
+        '1. ',
+        '',
+        '## Notes',
+        '- ',
+        '',
+        '## Flag',
+        '`picoCTF{}`',
+      ].join('\n');
+
+      const response = await fetch('http://localhost:3001/api/lab/notebooks', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          challengeId: challenge.id,
+          title: notebookTitle,
+          question: notebookQuestion,
+          content: notebookContent,
+        }),
+      });
+
+      if (response.status === 401 || response.status === 403) {
+        toast.error('Session expired. Please log in again.', { id: toastId });
+        logout();
+        navigate('/login', { replace: true });
+        return;
+      }
+
+      const result = await response.json();
+      if (!result.success || !result.notebook?.id) {
+        toast.error(result.message || 'Failed to create notebook.', { id: toastId });
+        return;
+      }
+
+      toast.success(result.existing ? 'Opened your existing notebook.' : 'Notebook created from challenge details.', { id: toastId });
+      navigate(`/lab/notebooks/${result.notebook.id}`);
+    } catch (err) {
+      console.error(err);
+      toast.error('Failed to create notebook.', { id: toastId });
+    } finally {
+      setIsCreatingNotebook(false);
+    }
+  }
+
   // Helper to color-code categories
   const getCategoryStyles = (cat: string) => {
     switch(cat) {
@@ -270,6 +344,18 @@ export default function ChallengeDetail({ challenge, onBack, onSolved }: Challen
             </div>
 
           </div>
+
+          <div className="bg-surface-light dark:bg-surface-dark border border-slate-200 dark:border-slate-700 rounded-lg p-4 flex items-center justify-between">
+            <p className="text-sm text-slate-600 dark:text-slate-300">Want to document your approach for this challenge?</p>
+            <button
+              type="button"
+              onClick={handleAddToNotes}
+              disabled={isCreatingNotebook}
+              className="text-xs font-semibold px-3 py-1.5 rounded border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 disabled:opacity-60"
+            >
+              {isCreatingNotebook ? 'Opening...' : 'Add to Notes'}
+            </button>
+          </div>
         </div>
 
         {/* Right Column: Submission Form */}
@@ -279,7 +365,7 @@ export default function ChallengeDetail({ challenge, onBack, onSolved }: Challen
               <span className="material-symbols-outlined text-primary">flag</span>
               Submit Flag
             </h2>
-            
+
             <form onSubmit={submitFlag} className="space-y-4">
               <div>
                 <label className="block text-xs font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400 mb-2">Flag</label>

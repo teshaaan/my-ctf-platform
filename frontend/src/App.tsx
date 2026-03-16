@@ -11,6 +11,8 @@ import AdminLogin from './components/AdminLogin';
 import LandingPage from './components/LandingPage';
 import Dashboard from './components/Dashboard';
 import Signup from './components/Signup';
+import Workspace from './components/Workspace';
+import Laboratory from './components/Laboratory';
 
 export default function App() {
 
@@ -108,6 +110,9 @@ export default function App() {
                 <Link to="/scoreboard" className={`${location.pathname === "/scoreboard" ? "text-primary border-b-2 border-primary" : "text-secondary dark:text-gray-300 hover:text-primary"} font-bold pb-1 transition-colors`}>
                   Scoreboard
                 </Link>
+                <Link to="/lab" className={`${location.pathname.startsWith("/lab") ? "text-primary border-b-2 border-primary" : "text-secondary dark:text-gray-300 hover:text-primary"} font-bold pb-1 transition-colors`}>
+                  Laboratory
+                </Link>
               </nav>
 
               <div className="flex items-center gap-4">
@@ -159,6 +164,18 @@ export default function App() {
       <Route path="/" element={<LandingPage onStartClick={() => navigate('/login')} />} />
       <Route path="/login" element={username ? <Navigate to="/dashboard" replace /> : <Login onSwitchToSignup={() => navigate('/signup')} />} />
       <Route path="/signup" element={username ? <Navigate to="/dashboard" replace /> : <Signup onSwitchToLogin={() => navigate('/login')} />} />
+
+      <Route path="/lab" element={
+        <ProtectedLayout>
+          <Laboratory />
+        </ProtectedLayout>
+      } />
+
+      <Route path="/lab/notebooks/:notebookId" element={
+        <ProtectedLayout>
+          <Workspace />
+        </ProtectedLayout>
+      } />
       
       {/* Admin Route */}
       <Route path="/admin" element={

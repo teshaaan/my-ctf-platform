@@ -58,6 +58,28 @@ const ensureHintUnlocksTable = async () => {
     `);
 };
 
+const ensureUserNotebooksTable = async () => {
+    await pool.query(`
+        CREATE TABLE IF NOT EXISTS user_notebooks (
+            id SERIAL PRIMARY KEY,
+            user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            challenge_id INTEGER REFERENCES challenges(id) ON DELETE SET NULL,
+            title VARCHAR(255) NOT NULL,
+            question TEXT,
+            content TEXT DEFAULT '',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    `);
+
+    await pool.query('ALTER TABLE user_notebooks ADD COLUMN IF NOT EXISTS challenge_id INTEGER REFERENCES challenges(id) ON DELETE SET NULL');
+    await pool.query(
+        `CREATE UNIQUE INDEX IF NOT EXISTS user_notebooks_user_challenge_unique
+         ON user_notebooks (user_id, challenge_id)
+         WHERE challenge_id IS NOT NULL`
+    );
+};
+
 const createAuthToken = (user) => {
     return jwt.sign(
         { id: user.id, username: user.username, role: user.role },
@@ -510,9 +532,229 @@ app.delete('/api/admin/challenges/:id', verifyToken, requireAdmin, async (req, r
     }
 });
 
+// ==========================================
+// THE LABORATORY ROUTES (Personal Notes)
+// ==========================================
+
+app.get('/api/lab/notebooks', verifyToken, async (req, res) => {
+    try {
+        const result = await pool.query(
+            `SELECT id, title, question, content, created_at, updated_at
+             FROM user_notebooks
+             WHERE user_id = $1
+             ORDER BY updated_at DESC, id DESC`,
+            [req.user.id]
+        );
+
+        res.json({ success: true, notebooks: result.rows });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ success: false, message: 'Failed to load notebooks.' });
+    }
+});
+
+app.post('/api/lab/notebooks', verifyToken, async (req, res) => {
+    const { title, question, content, challengeId } = req.body;
+
+    const sanitizedTitle = String(title || '').trim();
+    const sanitizedQuestion = String(question || '').trim();
+    const sanitizedContent = String(content || '');
+    const parsedChallengeId = challengeId === undefined || challengeId === null
+        ? null
+        : Number.parseInt(challengeId, 10);
+
+    if (!sanitizedTitle) {
+        return res.status(400).json({ success: false, message: 'Notebook title is required.' });
+    }
+
+    if (parsedChallengeId !== null && !Number.isFinite(parsedChallengeId)) {
+        return res.status(400).json({ success: false, message: 'Invalid challenge ID.' });
+    }
+
+    try {
+        if (parsedChallengeId !== null) {
+            const existingResult = await pool.query(
+                `SELECT id, title, question, content, created_at, updated_at
+                 FROM user_notebooks
+                 WHERE user_id = $1 AND challenge_id = $2
+                 LIMIT 1`,
+                [req.user.id, parsedChallengeId]
+            );
+
+            if (existingResult.rows.length > 0) {
+                return res.json({ success: true, notebook: existingResult.rows[0], existing: true });
+            }
+        }
+
+        const result = await pool.query(
+            `INSERT INTO user_notebooks (user_id, challenge_id, title, question, content)
+             VALUES ($1, $2, $3, $4, $5)
+             RETURNING id, title, question, content, created_at, updated_at`,
+            [req.user.id, parsedChallengeId, sanitizedTitle, sanitizedQuestion, sanitizedContent]
+        );
+
+        res.json({ success: true, notebook: result.rows[0], existing: false });
+    } catch (err) {
+        if (err.code === '23505' && parsedChallengeId !== null) {
+            try {
+                const existingResult = await pool.query(
+                    `SELECT id, title, question, content, created_at, updated_at
+                     FROM user_notebooks
+                     WHERE user_id = $1 AND challenge_id = $2
+                     LIMIT 1`,
+                    [req.user.id, parsedChallengeId]
+                );
+
+                if (existingResult.rows.length > 0) {
+                    return res.json({ success: true, notebook: existingResult.rows[0], existing: true });
+                }
+            } catch (lookupErr) {
+                console.error(lookupErr);
+            }
+        }
+        console.error(err);
+        res.status(500).json({ success: false, message: 'Failed to create notebook.' });
+    }
+});
+
+app.get('/api/lab/notebooks/:notebookId', verifyToken, async (req, res) => {
+    const notebookId = Number.parseInt(req.params.notebookId, 10);
+    if (!Number.isFinite(notebookId)) {
+        return res.status(400).json({ success: false, message: 'Invalid notebook ID.' });
+    }
+
+    try {
+        const result = await pool.query(
+            `SELECT id, title, question, content, created_at, updated_at
+             FROM user_notebooks
+             WHERE id = $1 AND user_id = $2`,
+            [notebookId, req.user.id]
+        );
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ success: false, message: 'Notebook not found.' });
+        }
+
+        res.json({ success: true, notebook: result.rows[0] });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ success: false, message: 'Failed to load notebook.' });
+    }
+});
+
+app.patch('/api/lab/notebooks/:notebookId', verifyToken, async (req, res) => {
+    const notebookId = Number.parseInt(req.params.notebookId, 10);
+    
+    if (!Number.isFinite(notebookId)) {
+        return res.status(400).json({ success: false, message: 'Invalid notebook ID.' });
+    }
+
+    // Check which fields the frontend actually sent
+    const hasTitle = Object.prototype.hasOwnProperty.call(req.body, 'title');
+    const hasQuestion = Object.prototype.hasOwnProperty.call(req.body, 'question');
+    const hasContent = Object.prototype.hasOwnProperty.call(req.body, 'content');
+    const hasSnippets = Object.prototype.hasOwnProperty.call(req.body, 'python_snippets');
+
+    // Make sure at least one field was sent
+    if (!hasTitle && !hasQuestion && !hasContent && !hasSnippets) {
+        return res.status(400).json({ success: false, message: 'Nothing to update.' });
+    }
+
+    // Sanitize and prepare the values
+    const titleValue = hasTitle ? String(req.body.title || '').trim() : null;
+    const questionValue = hasQuestion ? String(req.body.question || '').trim() : null;
+    const contentValue = hasContent ? String(req.body.content || '') : null;
+    
+    // Convert the snippets array to a JSON string for PostgreSQL
+    const snippetsValue = hasSnippets ? JSON.stringify(req.body.python_snippets || []) : null;
+
+    if (hasTitle && !titleValue) {
+        return res.status(400).json({ success: false, message: 'Notebook title cannot be empty.' });
+    }
+
+    try {
+        const result = await pool.query(
+            `UPDATE user_notebooks
+             SET
+                 title = COALESCE($1, title),
+                 question = COALESCE($2, question),
+                 content = COALESCE($3, content),
+                 python_snippets = COALESCE($4, python_snippets),
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE id = $5 AND user_id = $6
+             RETURNING id, title, question, content, python_snippets, created_at, updated_at`,
+            [titleValue, questionValue, contentValue, snippetsValue, notebookId, req.user.id]
+        );
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ success: false, message: 'Notebook not found.' });
+        }
+
+        res.json({ success: true, notebook: result.rows[0] });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ success: false, message: 'Failed to save notebook.' });
+    }
+});
+
+// 1. GET ROUTE: Fetch a user's note for a specific challenge
+app.get('/api/lab/notes/:challengeId', verifyToken, async (req, res) => {
+    // The Bouncer verified the token, so we know exactly who this is:
+    const userId = req.user.id; 
+    const challengeId = req.params.challengeId;
+
+    try {
+        const result = await pool.query(
+            'SELECT content, updated_at FROM personal_notes WHERE user_id = $1 AND challenge_id = $2',
+            [userId, challengeId]
+        );
+
+        // If they have a note, send it. If not, send an empty string so the editor is blank.
+        if (result.rows.length > 0) {
+            res.json({ success: true, note: result.rows[0] });
+        } else {
+            res.json({ success: true, note: { content: '', updated_at: null } });
+        }
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ success: false, message: "Failed to load notes." });
+    }
+});
+
+// 2. POST ROUTE: Save or Update a note (The "Upsert")
+app.post('/api/lab/notes', verifyToken, async (req, res) => {
+    const userId = req.user.id;
+    const { challengeId, content } = req.body;
+
+    try {
+        // The Magic SQL: "ON CONFLICT DO UPDATE"
+        // It tries to insert. If it hits our UNIQUE rule, it switches to updating!
+        const result = await pool.query(
+            `INSERT INTO personal_notes (user_id, challenge_id, content) 
+             VALUES ($1, $2, $3) 
+             ON CONFLICT (user_id, challenge_id) 
+             DO UPDATE SET content = EXCLUDED.content 
+             RETURNING updated_at`,
+            [userId, challengeId, content]
+        );
+
+        res.json({ 
+            success: true, 
+            message: "Note saved auto-magically!",
+            updated_at: result.rows[0].updated_at
+        });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ success: false, message: "Failed to save note." });
+    }
+});
+
 const PORT = 3001;
 
-ensureHintUnlocksTable()
+Promise.all([
+    ensureHintUnlocksTable(),
+    ensureUserNotebooksTable(),
+])
     .then(() => {
         app.listen(PORT, () => {
             console.log(`Server running on port ${PORT}`);
