@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 
 
@@ -105,6 +105,10 @@ export default function Login({ onSwitchToSignup }: LoginProps) {
           <p className="text-center mt-8 text-slate-500 dark:text-slate-400">
             New operative? 
             <button onClick={onSwitchToSignup} className="text-primary font-bold hover:underline ml-1">Create an account</button>
+          </p>
+
+          <p className="text-center mt-2 text-slate-500 dark:text-slate-400 text-sm">
+            Admin access? <Link to="/admin/login" className="text-primary font-bold hover:underline ml-1">Go to admin login</Link>
           </p>
         </div>
       </main>

@@ -151,6 +151,23 @@ export default function App() {
     );
   };
 
+  const AdminLayout = ({ children }: { children: React.ReactNode }) => {
+    if (!username) return <Navigate to="/admin/login" replace />;
+    if (role !== 'admin') return <Navigate to="/dashboard" replace />;
+
+    return (
+      <div className="p-10 font-sans max-w-5xl mx-auto bg-background-light dark:bg-background-dark min-h-screen text-secondary dark:text-white">
+        <div className="flex justify-between items-center border-b-2 border-primary pb-5 mb-5">
+          <h1 className="text-primary text-2xl font-bold flex items-center gap-2">
+            <span className="material-symbols-outlined">admin_panel_settings</span> Admin Control Panel
+          </h1>
+          <p>Logged in as: <strong>{username}</strong></p>
+        </div>
+        {children}
+      </div>
+    );
+  };
+
   // --- THE ROUTING ENGINE ---
   return (
   <>
@@ -177,24 +194,23 @@ export default function App() {
         </ProtectedLayout>
       } />
       
-      {/* Admin Route */}
-      <Route path="/admin" element={
-        !username ? (
-          <AdminLogin />
-        ) : role !== 'admin' ? (
-          <Navigate to="/dashboard" replace />
-        ) : (
-          <div className="p-10 font-sans max-w-5xl mx-auto bg-background-light dark:bg-background-dark min-h-screen text-secondary dark:text-white">
-            <div className="flex justify-between items-center border-b-2 border-primary pb-5 mb-5">
-              <h1 className="text-primary text-2xl font-bold flex items-center gap-2">
-                <span className="material-symbols-outlined">admin_panel_settings</span> Admin Control Panel
-              </h1>
-              <p>Logged in as: <strong>{username}</strong></p>
-            </div>
+      {/* Admin Routes */}
+      <Route
+        path="/admin"
+        element={<Navigate to={role === 'admin' ? '/admin/portal' : '/admin/login'} replace />}
+      />
+      <Route
+        path="/admin/login"
+        element={role === 'admin' ? <Navigate to="/admin/portal" replace /> : <AdminLogin />}
+      />
+      <Route
+        path="/admin/portal"
+        element={
+          <AdminLayout>
             <AdminBoard />
-          </div>
-        )
-      } />
+          </AdminLayout>
+        }
+      />
 
       {/* Protected Player Routes */}
       <Route path="/dashboard" element={<ProtectedLayout><Dashboard username={username || ""} /></ProtectedLayout>} />

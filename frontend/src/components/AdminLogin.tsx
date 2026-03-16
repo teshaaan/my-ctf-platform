@@ -29,7 +29,7 @@ export default function AdminLogin() {
           if (data.role === 'admin') {
             login(data.token, data.username, data.role);
             toast.success(`Admin authenticated: ${data.username}`);
-            navigate('/admin');
+            navigate('/admin/portal');
           } else {
             // Kick them out if they are a regular player
             setError("Access Denied: You do not have administrator privileges.");

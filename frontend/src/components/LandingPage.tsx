@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 
 interface LandingPageProps {
   onStartClick: () => void;
@@ -60,6 +61,9 @@ export default function LandingPage({ onStartClick }: LandingPageProps) {
                   <span className="material-symbols-outlined">dark_mode</span>
                 )}
               </button>
+              <Link to="/admin/login" className="px-4 py-2 text-sm font-semibold rounded-lg border border-navy/20 dark:border-white/20 text-navy dark:text-white hover:bg-navy/5 dark:hover:bg-white/5 transition-colors">
+                Admin Portal
+              </Link>
               <button onClick={onStartClick} className="px-5 py-2 text-sm font-semibold rounded-lg bg-navy dark:bg-white text-white dark:text-navy hover:opacity-90 transition-opacity">
                 Log In
               </button>
