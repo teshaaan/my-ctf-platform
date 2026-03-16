@@ -80,6 +80,37 @@ const ensureUserNotebooksTable = async () => {
     );
 };
 
+const ensureChallengesTableColumns = async () => {
+    await pool.query('ALTER TABLE challenges ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP');
+    await pool.query('ALTER TABLE challenges ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP');
+    await pool.query('ALTER TABLE challenges ADD COLUMN IF NOT EXISTS description TEXT');
+    await pool.query('ALTER TABLE challenges ADD COLUMN IF NOT EXISTS author VARCHAR(255)');
+    await pool.query('ALTER TABLE challenges ADD COLUMN IF NOT EXISTS hint TEXT');
+    await pool.query('ALTER TABLE challenges ADD COLUMN IF NOT EXISTS hint_cost INTEGER DEFAULT 0');
+};
+
+const ensureChallengeSubmissionsTable = async () => {
+    await pool.query(`
+        CREATE TABLE IF NOT EXISTS challenge_submissions (
+            id SERIAL PRIMARY KEY,
+            user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            title VARCHAR(255) NOT NULL,
+            category VARCHAR(100) NOT NULL,
+            points INTEGER NOT NULL,
+            difficulty VARCHAR(20) NOT NULL,
+            flag TEXT NOT NULL,
+            description TEXT,
+            hint TEXT,
+            hint_cost INTEGER DEFAULT 0,
+            status VARCHAR(20) NOT NULL DEFAULT 'pending',
+            reviewed_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+            reviewed_at TIMESTAMP,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    `);
+};
+
 const createAuthToken = (user) => {
     return jwt.sign(
         { id: user.id, username: user.username, role: user.role },
@@ -202,6 +233,7 @@ app.get('/api/challenges', async (req, res) => {
         const result = await pool.query(`
             SELECT
                 c.id,
+                c.created_at AS "createdAt",
                 c.title,
                 c.category,
                 c.points,
@@ -220,7 +252,7 @@ app.get('/api/challenges', async (req, res) => {
                 COUNT(s.id)::int AS "solveCount"
             FROM challenges c
             LEFT JOIN solves s ON s.challenge_id = c.id
-            GROUP BY c.id, c.title, c.category, c.points, c.description, c.author, c.hint, c.hint_cost, c.difficulty
+            GROUP BY c.id, c.created_at, c.title, c.category, c.points, c.description, c.author, c.hint, c.hint_cost, c.difficulty
             ORDER BY c.id ASC
         `);
         res.json(result.rows);
@@ -491,10 +523,15 @@ app.get('/api/me/dashboard', verifyToken, async (req, res) => {
 // NEW ROUTE: Secure Admin Dashboard (Create Challenges)
 app.post('/api/admin/challenges', verifyToken, requireAdmin, async (req, res) => {
     // Now accepting category, points and difficulty from the frontend.
-    const { title, flag, category, points, difficulty } = req.body;
+    const { title, flag, category, points, difficulty, description, author, hint, hintCost } = req.body;
 
     const parsedPoints = Number.parseInt(points, 10);
+    const parsedHintCost = Number.parseInt(hintCost, 10);
     const resolvedDifficulty = normalizeDifficulty(difficulty, parsedPoints);
+    const normalizedHintCost = Number.isFinite(parsedHintCost) ? Math.max(0, parsedHintCost) : 0;
+    const sanitizedDescription = String(description || '').trim();
+    const sanitizedAuthor = String(author || 'Admin').trim() || 'Admin';
+    const sanitizedHint = String(hint || '').trim();
 
     if (!title || !flag || !category || !Number.isFinite(parsedPoints)) {
         return res.status(400).json({ success: false, message: "Missing required fields." });
@@ -502,15 +539,85 @@ app.post('/api/admin/challenges', verifyToken, requireAdmin, async (req, res) =>
 
     try {
         // Persist a valid difficulty so challenge board filters always work.
-        await pool.query(
-            'INSERT INTO challenges (title, flag, category, points, difficulty) VALUES ($1, $2, $3, $4, $5)',
-            [title, flag, category, parsedPoints, resolvedDifficulty]
+        const result = await pool.query(
+            `INSERT INTO challenges (title, flag, category, points, difficulty, description, author, hint, hint_cost, created_at, updated_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+             RETURNING id`,
+            [title, flag, category, parsedPoints, resolvedDifficulty, sanitizedDescription, sanitizedAuthor, sanitizedHint, normalizedHintCost]
         );
-        res.json({ success: true, message: "Challenge added successfully!" });
+        res.json({ success: true, message: "Challenge added successfully!", challengeId: result.rows[0].id });
 
     } catch (err) {
         console.error(err);
         res.status(500).json({ error: "Server error" });
+    }
+});
+
+app.patch('/api/admin/challenges/:id', verifyToken, requireAdmin, async (req, res) => {
+    const challengeId = Number.parseInt(req.params.id, 10);
+    const {
+        title,
+        flag,
+        category,
+        points,
+        difficulty,
+        description,
+        author,
+        hint,
+        hintCost,
+    } = req.body;
+
+    if (!Number.isFinite(challengeId)) {
+        return res.status(400).json({ success: false, message: 'Invalid challenge ID.' });
+    }
+
+    const parsedPoints = Number.parseInt(points, 10);
+    const parsedHintCost = Number.parseInt(hintCost, 10);
+    if (!title || !category || !Number.isFinite(parsedPoints)) {
+        return res.status(400).json({ success: false, message: 'Missing required fields.' });
+    }
+
+    const resolvedDifficulty = normalizeDifficulty(difficulty, parsedPoints);
+    const normalizedHintCost = Number.isFinite(parsedHintCost) ? Math.max(0, parsedHintCost) : 0;
+
+    try {
+        const result = await pool.query(
+            `UPDATE challenges
+             SET
+                 title = $1,
+                 flag = COALESCE(NULLIF($2, ''), flag),
+                 category = $3,
+                 points = $4,
+                 difficulty = $5,
+                 description = $6,
+                 author = $7,
+                 hint = $8,
+                 hint_cost = $9,
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE id = $10
+             RETURNING id`,
+            [
+                String(title).trim(),
+                String(flag || '').trim(),
+                String(category).trim(),
+                parsedPoints,
+                resolvedDifficulty,
+                String(description || '').trim(),
+                String(author || 'Admin').trim() || 'Admin',
+                String(hint || '').trim(),
+                normalizedHintCost,
+                challengeId,
+            ]
+        );
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ success: false, message: 'Challenge not found.' });
+        }
+
+        return res.json({ success: true, message: 'Challenge updated successfully.' });
+    } catch (err) {
+        console.error(err);
+        return res.status(500).json({ success: false, message: 'Server error.' });
     }
 });
 // NEW ROUTE: Secure Admin Dashboard (Delete Challenges)
@@ -529,6 +636,179 @@ app.delete('/api/admin/challenges/:id', verifyToken, requireAdmin, async (req, r
     } catch (err) {
         console.error(err);
         res.status(500).json({ error: "Server error" });
+    }
+});
+
+app.post('/api/lab/challenge-submissions', verifyToken, async (req, res) => {
+    const { title, category, points, difficulty, flag, description, hint, hintCost } = req.body;
+    const parsedPoints = Number.parseInt(points, 10);
+    const parsedHintCost = Number.parseInt(hintCost, 10);
+
+    if (!title || !category || !flag || !Number.isFinite(parsedPoints)) {
+        return res.status(400).json({ success: false, message: 'Title, category, points, and flag are required.' });
+    }
+
+    try {
+        const result = await pool.query(
+            `INSERT INTO challenge_submissions (
+                user_id,
+                title,
+                category,
+                points,
+                difficulty,
+                flag,
+                description,
+                hint,
+                hint_cost
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            RETURNING id, status, created_at`,
+            [
+                req.user.id,
+                String(title).trim(),
+                String(category).trim(),
+                parsedPoints,
+                normalizeDifficulty(difficulty, parsedPoints),
+                String(flag).trim(),
+                String(description || '').trim(),
+                String(hint || '').trim(),
+                Number.isFinite(parsedHintCost) ? Math.max(0, parsedHintCost) : 0,
+            ]
+        );
+
+        res.json({ success: true, submission: result.rows[0], message: 'Challenge sent to admin for review.' });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ success: false, message: 'Failed to submit challenge.' });
+    }
+});
+
+app.get('/api/lab/challenge-submissions', verifyToken, async (req, res) => {
+    try {
+        const result = await pool.query(
+            `SELECT id, title, category, points, difficulty, status, created_at, reviewed_at
+             FROM challenge_submissions
+             WHERE user_id = $1
+             ORDER BY created_at DESC, id DESC`,
+            [req.user.id]
+        );
+
+        res.json({ success: true, submissions: result.rows });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ success: false, message: 'Failed to load your submissions.' });
+    }
+});
+
+app.get('/api/admin/challenge-submissions', verifyToken, requireAdmin, async (req, res) => {
+    try {
+        const result = await pool.query(
+            `SELECT
+                cs.id,
+                cs.title,
+                cs.category,
+                cs.points,
+                cs.difficulty,
+                cs.flag,
+                cs.description,
+                cs.hint,
+                cs.hint_cost AS "hintCost",
+                cs.status,
+                cs.created_at AS "createdAt",
+                u.username AS "submittedBy"
+            FROM challenge_submissions cs
+            JOIN users u ON u.id = cs.user_id
+            ORDER BY cs.created_at DESC, cs.id DESC`
+        );
+
+        res.json({ success: true, submissions: result.rows });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ success: false, message: 'Failed to load challenge submissions.' });
+    }
+});
+
+app.patch('/api/admin/challenge-submissions/:id/accept', verifyToken, requireAdmin, async (req, res) => {
+    const submissionId = Number.parseInt(req.params.id, 10);
+    if (!Number.isFinite(submissionId)) {
+        return res.status(400).json({ success: false, message: 'Invalid submission ID.' });
+    }
+
+    const client = await pool.connect();
+    try {
+        await client.query('BEGIN');
+
+        const submissionResult = await client.query(
+            `SELECT id, title, category, points, difficulty, flag, description, hint, hint_cost
+             FROM challenge_submissions
+             WHERE id = $1 AND status = 'pending'
+             FOR UPDATE`,
+            [submissionId]
+        );
+
+        if (submissionResult.rows.length === 0) {
+            await client.query('ROLLBACK');
+            return res.status(404).json({ success: false, message: 'Pending submission not found.' });
+        }
+
+        const s = submissionResult.rows[0];
+
+        await client.query(
+            `INSERT INTO challenges (title, flag, category, points, difficulty, description, author, hint, hint_cost, created_at, updated_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+            [
+                s.title,
+                s.flag,
+                s.category,
+                s.points,
+                normalizeDifficulty(s.difficulty, s.points),
+                s.description,
+                'Community',
+                s.hint,
+                s.hint_cost || 0,
+            ]
+        );
+
+        await client.query(
+            `UPDATE challenge_submissions
+             SET status = 'accepted', reviewed_by = $1, reviewed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+             WHERE id = $2`,
+            [req.user.id, submissionId]
+        );
+
+        await client.query('COMMIT');
+        return res.json({ success: true, message: 'Submission accepted and challenge published.' });
+    } catch (err) {
+        await client.query('ROLLBACK');
+        console.error(err);
+        return res.status(500).json({ success: false, message: 'Failed to accept submission.' });
+    } finally {
+        client.release();
+    }
+});
+
+app.delete('/api/admin/challenge-submissions/:id', verifyToken, requireAdmin, async (req, res) => {
+    const submissionId = Number.parseInt(req.params.id, 10);
+    if (!Number.isFinite(submissionId)) {
+        return res.status(400).json({ success: false, message: 'Invalid submission ID.' });
+    }
+
+    try {
+        const result = await pool.query(
+            `UPDATE challenge_submissions
+             SET status = 'removed', reviewed_by = $1, reviewed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+             WHERE id = $2 AND status = 'pending'
+             RETURNING id`,
+            [req.user.id, submissionId]
+        );
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ success: false, message: 'Pending submission not found.' });
+        }
+
+        res.json({ success: true, message: 'Submission removed.' });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ success: false, message: 'Failed to remove submission.' });
     }
 });
 
@@ -754,6 +1034,8 @@ const PORT = 3001;
 Promise.all([
     ensureHintUnlocksTable(),
     ensureUserNotebooksTable(),
+    ensureChallengesTableColumns(),
+    ensureChallengeSubmissionsTable(),
 ])
     .then(() => {
         app.listen(PORT, () => {
